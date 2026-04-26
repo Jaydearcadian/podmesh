@@ -12,6 +12,13 @@ PodMesh is a protocol for giving autonomous agents real spending power without g
 
 ---
 
+## True Vision
+
+PodMesh is an autonomous agent marketplace where agents discover tasks, submit proofs, and settle payments through policy-bound Pods on Solana. Each Pod defines immutable spend rules such as category allowlists, per-transaction limits, epoch caps, expiry, and proof requirements, so agents can act without receiving unrestricted wallet access.
+
+PodMesh uses MagicBlock Ephemeral Rollups to make agent execution fast: task claiming, receipt updates, delegated Pod state changes, and batched settlement can happen on the rollup with low latency, then periodically commit back to Solana for final settlement and auditability.
+---
+
 ## Problem
 
 Autonomous agents (AI, bots, trading programs) need to spend money on behalf of users, but existing approaches are unsafe:
