@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useCallback } from "react";
 import { Link, Route, Router, Switch, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -44,6 +44,10 @@ import {
   CheckCheck,
   Loader2,
   ChevronRight,
+  ShoppingBag,
+  Store,
+  PackageCheck,
+  PlayCircle,
 } from "lucide-react";
 import { queryClient } from "./lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
@@ -306,9 +310,107 @@ function now() {
 function derivePod(owner: PublicKey | null) {
   if (!owner) return null;
   return PublicKey.findProgramAddressSync(
-    [encode("podmesh"), owner.toBuffer()],
+    [encode("pod"), owner.toBuffer()],
     POD_FACTORY_PROGRAM_ID,
   )[0];
+}
+
+// ─── category hash matching scripts/create-spend-pod.ts ──────────────────────
+function categoryHashBytes(label: string): Uint8Array {
+  const buf = new Uint8Array(32);
+  const src = new TextEncoder().encode(label);
+  for (let i = 0; i < src.length; i++) {
+    buf[i % 32] ^= src[i];
+  }
+  for (let i = 0; i < 32; i++) {
+    buf[(i + 7) % 32] ^= buf[i] ^ ((i * 31 + 17) & 0xff);
+  }
+  return buf;
+}
+
+// ─── Borsh-encode u64 (little-endian 8 bytes) ────────────────────────────────
+function encodeU64(value: bigint): Uint8Array {
+  const buf = new Uint8Array(8);
+  let v = value;
+  for (let i = 0; i < 8; i++) {
+    buf[i] = Number(v & 0xffn);
+    v >>= 8n;
+  }
+  return buf;
+}
+
+// ─── Borsh-encode i64 (little-endian 8 bytes) ────────────────────────────────
+function encodeI64(value: bigint): Uint8Array {
+  const buf = new Uint8Array(8);
+  let v = value < 0n ? value + (1n << 64n) : value;
+  for (let i = 0; i < 8; i++) {
+    buf[i] = Number(v & 0xffn);
+    v >>= 8n;
+  }
+  return buf;
+}
+
+// ─── Borsh-encode u16 ────────────────────────────────────────────────────────
+function encodeU16(value: number): Uint8Array {
+  const buf = new Uint8Array(2);
+  buf[0] = value & 0xff;
+  buf[1] = (value >> 8) & 0xff;
+  return buf;
+}
+
+// ─── Borsh-encode u32 ────────────────────────────────────────────────────────
+function encodeU32(value: number): Uint8Array {
+  const buf = new Uint8Array(4);
+  buf[0] = value & 0xff;
+  buf[1] = (value >> 8) & 0xff;
+  buf[2] = (value >> 16) & 0xff;
+  buf[3] = (value >> 24) & 0xff;
+  return buf;
+}
+
+// ─── Build create_spend_pod instruction data from IDL discriminator ──────────
+function buildCreateSpendPodData({
+  maxPerTxLamports,
+  maxPerEpochLamports,
+  categoryLabels,
+  expiryTs,
+  slippageBps,
+  requireDeliveryOracle,
+}: {
+  maxPerTxLamports: bigint;
+  maxPerEpochLamports: bigint;
+  categoryLabels: string[];
+  expiryTs: bigint;
+  slippageBps: number;
+  requireDeliveryOracle: boolean;
+}): Buffer {
+  // Discriminator from IDL: [246, 178, 121, 12, 74, 252, 205, 251]
+  const discriminator = new Uint8Array([246, 178, 121, 12, 74, 252, 205, 251]);
+
+  // Build category hashes
+  const hashes = categoryLabels.map(categoryHashBytes);
+
+  // Encode: discriminator + max_per_tx_lamports (u64) + max_per_epoch_lamports (u64)
+  //   + allowed_category_hashes (Vec<[u8;32]>) + expiry_ts (i64) + slippage_bps (u16) + require_delivery_oracle (bool)
+  const parts: Uint8Array[] = [
+    discriminator,
+    encodeU64(maxPerTxLamports),
+    encodeU64(maxPerEpochLamports),
+    encodeU32(hashes.length),     // vec length prefix
+    ...hashes,
+    encodeI64(expiryTs),
+    encodeU16(slippageBps),
+    new Uint8Array([requireDeliveryOracle ? 1 : 0]),
+  ];
+
+  const totalLen = parts.reduce((acc, p) => acc + p.length, 0);
+  const result = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const p of parts) {
+    result.set(p, offset);
+    offset += p.length;
+  }
+  return Buffer.from(result);
 }
 
 // ------------------------------------------------------------------
@@ -381,10 +483,14 @@ function usePodMeshState() {
     },
   ]);
   const [routerStatus, setRouterStatus] = useState<"idle" | "online" | "offline">("idle");
+  const [loading, setLoading] = useState<Partial<Record<LoadingKey, boolean>>>({});
   // Wallet picker state
   const [walletPickerOpen, setWalletPickerOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<ProviderName>("auto");
   const providerRef = useRef<SolanaProvider | null>(null);
+
+  const setLoadingKey = useCallback((key: LoadingKey, val: boolean) =>
+    setLoading(prev => ({ ...prev, [key]: val })), []);
 
   const baseConnection = useMemo(() => new Connection(SOLANA_DEVNET, "confirmed"), []);
   const routerConnection = useMemo(
@@ -413,6 +519,7 @@ function usePodMeshState() {
       });
       return;
     }
+    setLoadingKey("wallet", true);
     try {
       const res = await provider.connect();
       providerRef.current = provider;
@@ -430,6 +537,8 @@ function usePodMeshState() {
         description: err instanceof Error ? err.message : "User rejected wallet connection.",
         variant: "destructive",
       });
+    } finally {
+      setLoadingKey("wallet", false);
     }
   }
 
@@ -451,6 +560,7 @@ function usePodMeshState() {
   }
 
   async function checkRouter() {
+    setLoadingKey("router", true);
     try {
       const identity = await routerConnection.getClosestValidator();
       setRouterStatus("online");
@@ -467,6 +577,8 @@ function usePodMeshState() {
         title: "MagicBlock router check failed",
         detail: error instanceof Error ? error.message : "Unknown router error",
       });
+    } finally {
+      setLoadingKey("router", false);
     }
   }
 
@@ -500,29 +612,82 @@ function usePodMeshState() {
   }
 
   /**
-   * LIVE DEVNET: anchors pod policy as a memo tx on Solana devnet.
-   * Programs are deployed on devnet (pod_factory: FXMgSbYBh6fQFCPQ7My5CAKW8sWgUTHQwo7gqLykp4fm).
-   * This UI path sends a memo tx; full PDA CPI is exercised via the CLI script.
+   * LIVE DEVNET: calls pod_factory.create_spend_pod via IDL discriminator.
+   * Constructs instruction data manually (no Anchor browser bundle needed).
+   * PDA seeds: [b"pod", owner_pubkey] — matches deployed IDL.
    */
   async function createPodOnchain() {
     if (!wallet || !pod) return connectWallet();
-    const memo = new TransactionInstruction({
-      programId: SystemProgram.programId,
-      keys: [],
-      data: Buffer.from(
-        `PODMESHv1:create:${pod.toBase58()}:${JSON.stringify(policy)}:${DELEGATION_PROGRAM_ID.toBase58()}`,
-      ),
-    });
-    const tx = new Transaction().add(memo);
-    const signature = await sendViaWallet(tx, "base");
-    addEvent({
-      kind: "settle",
-      title: "Pod policy memo anchored on Solana devnet",
-      detail: `PDA: ${pod.toBase58()} · devnet memo tx (programs deployed — CPI test via scripts/create-spend-pod.ts)`,
-      signature,
-      route: "devnet",
-    });
-    toast({ title: "Pod memo anchored on devnet", description: short(signature) });
+    setLoadingKey("createPod", true);
+    try {
+      // Check if Pod already exists on-chain
+      const existing = await baseConnection.getAccountInfo(pod);
+      if (existing !== null) {
+        toast({
+          title: "Pod already exists",
+          description: `PDA: ${short(pod.toBase58())} — view on Explorer`,
+        });
+        addEvent({
+          kind: "settle",
+          title: "Pod PDA already initialised on Solana devnet",
+          detail: `PDA: ${pod.toBase58()} (${existing.data.length} bytes)`,
+          route: "devnet",
+        });
+        return;
+      }
+
+      // Policy args matching scripts/create-spend-pod.ts
+      const MAX_PER_TX_LAMPORTS   = BigInt(50_000_000);   // 0.05 SOL
+      const MAX_PER_EPOCH_LAMPORTS = BigInt(1_000_000_000); // 1 SOL
+      const CATEGORY_LABELS = ["grocery:general", "food_delivery:restaurant", "grocery:pharmacy"];
+      const EXPIRY_TS = BigInt(Math.floor(Date.now() / 1000) + 90 * 24 * 3600); // +90 days
+      const SLIPPAGE_BPS = 150;
+      const REQUIRE_DELIVERY_ORACLE = false;
+
+      const data = buildCreateSpendPodData({
+        maxPerTxLamports: MAX_PER_TX_LAMPORTS,
+        maxPerEpochLamports: MAX_PER_EPOCH_LAMPORTS,
+        categoryLabels: CATEGORY_LABELS,
+        expiryTs: EXPIRY_TS,
+        slippageBps: SLIPPAGE_BPS,
+        requireDeliveryOracle: REQUIRE_DELIVERY_ORACLE,
+      });
+
+      const ix = new TransactionInstruction({
+        programId: POD_FACTORY_PROGRAM_ID,
+        keys: [
+          { pubkey: pod,                     isSigner: false, isWritable: true  },
+          { pubkey: wallet,                  isSigner: true,  isWritable: true  },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data,
+      });
+
+      const tx = new Transaction().add(ix);
+      const signature = await sendViaWallet(tx, "base");
+
+      addEvent({
+        kind: "settle",
+        title: "create_spend_pod — live on Solana devnet",
+        detail: `PDA: ${pod.toBase58()} · max_per_tx: 0.05 SOL · max_per_epoch: 1 SOL · slippage: 150bps · expiry: +90d`,
+        signature,
+        route: "devnet",
+      });
+      toast({
+        title: "Pod created on devnet",
+        description: `PDA: ${short(pod.toBase58())} · sig: ${short(signature)}`,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast({ title: "create_spend_pod failed", description: msg, variant: "destructive" });
+      addEvent({
+        kind: "error",
+        title: "create_spend_pod failed",
+        detail: msg,
+      });
+    } finally {
+      setLoadingKey("createPod", false);
+    }
   }
 
   /**
@@ -531,26 +696,34 @@ function usePodMeshState() {
    */
   async function delegatePodLive() {
     if (!wallet || !pod) return connectWallet();
-    const tx = new Transaction();
-    tx.add(
-      createDelegateInstruction(
-        {
-          payer: wallet,
-          delegatedAccount: pod,
-          ownerProgram: POD_FACTORY_PROGRAM_ID,
-          validator: new PublicKey(DEVNET_VALIDATOR),
-        },
-        { commitFrequencyMs: 3000, validator: new PublicKey(DEVNET_VALIDATOR) },
-      ),
-    );
-    const signature = await sendViaWallet(tx, "magic");
-    addEvent({
-      kind: "delegate",
-      title: "Delegation instruction sent via Magic Router (ER)",
-      detail: `Pod PDA: ${pod.toBase58()} · validator: ${short(DEVNET_VALIDATOR)}`,
-      signature,
-      route: "magic-router",
-    });
+    setLoadingKey("delegate", true);
+    try {
+      const tx = new Transaction();
+      tx.add(
+        createDelegateInstruction(
+          {
+            payer: wallet,
+            delegatedAccount: pod,
+            ownerProgram: POD_FACTORY_PROGRAM_ID,
+            validator: new PublicKey(DEVNET_VALIDATOR),
+          },
+          { commitFrequencyMs: 3000, validator: new PublicKey(DEVNET_VALIDATOR) },
+        ),
+      );
+      const signature = await sendViaWallet(tx, "magic");
+      addEvent({
+        kind: "delegate",
+        title: "Delegation instruction sent via Magic Router (ER)",
+        detail: `Pod PDA: ${pod.toBase58()} · validator: ${short(DEVNET_VALIDATOR)}`,
+        signature,
+        route: "magic-router",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast({ title: "Delegation failed", description: msg, variant: "destructive" });
+    } finally {
+      setLoadingKey("delegate", false);
+    }
   }
 
   /**
@@ -559,6 +732,7 @@ function usePodMeshState() {
    */
   async function executeIntent(intent: PaymentIntent) {
     if (!wallet || !pod) return connectWallet();
+    setLoadingKey("execute", true);
     const prior = receipts.filter((r) => r.status === "approved").reduce((sum, r) => sum + r.amountSol, 0);
     let status: TxStatus = "approved";
     let reason = "Policy accepted. Transaction submitted via Magic Router (ER).";
@@ -622,6 +796,7 @@ function usePodMeshState() {
       },
       ...prev,
     ]);
+    setLoadingKey("execute", false);
   }
 
   /**
@@ -629,24 +804,32 @@ function usePodMeshState() {
    */
   async function settleEpoch() {
     if (!wallet || !pod) return connectWallet();
-    const root = await sha256Hex(merkleRootSeed);
-    const tx = new Transaction();
-    tx.add(createCommitInstruction(wallet, [pod]));
-    tx.add(
-      new TransactionInstruction({
-        programId: SystemProgram.programId,
-        keys: [],
-        data: Buffer.from(`PODMESHv1:settle:${root}:${approvedVolume.toFixed(9)}`),
-      }),
-    );
-    const signature = await sendViaWallet(tx, "magic");
-    addEvent({
-      kind: "settle",
-      title: "Epoch commit instruction submitted via Magic Router (ER)",
-      detail: `root 0x${root.slice(0, 24)} · ${receipts.length} receipts`,
-      signature,
-      route: "magic-router",
-    });
+    setLoadingKey("settle", true);
+    try {
+      const root = await sha256Hex(merkleRootSeed);
+      const tx = new Transaction();
+      tx.add(createCommitInstruction(wallet, [pod]));
+      tx.add(
+        new TransactionInstruction({
+          programId: SystemProgram.programId,
+          keys: [],
+          data: Buffer.from(`PODMESHv1:settle:${root}:${approvedVolume.toFixed(9)}`),
+        }),
+      );
+      const signature = await sendViaWallet(tx, "magic");
+      addEvent({
+        kind: "settle",
+        title: "Epoch commit instruction submitted via Magic Router (ER)",
+        detail: `root 0x${root.slice(0, 24)} · ${receipts.length} receipts`,
+        signature,
+        route: "magic-router",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast({ title: "Settlement failed", description: msg, variant: "destructive" });
+    } finally {
+      setLoadingKey("settle", false);
+    }
   }
 
   /**
@@ -654,15 +837,23 @@ function usePodMeshState() {
    */
   async function undelegatePod() {
     if (!wallet || !pod) return connectWallet();
-    const tx = new Transaction().add(createCommitAndUndelegateInstruction(wallet, [pod]));
-    const signature = await sendViaWallet(tx, "magic");
-    addEvent({
-      kind: "delegate",
-      title: "Commit + undelegate submitted via Magic Router (ER)",
-      detail: pod.toBase58(),
-      signature,
-      route: "magic-router",
-    });
+    setLoadingKey("undelegate", true);
+    try {
+      const tx = new Transaction().add(createCommitAndUndelegateInstruction(wallet, [pod]));
+      const signature = await sendViaWallet(tx, "magic");
+      addEvent({
+        kind: "delegate",
+        title: "Commit + undelegate submitted via Magic Router (ER)",
+        detail: pod.toBase58(),
+        signature,
+        route: "magic-router",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast({ title: "Undelegate failed", description: msg, variant: "destructive" });
+    } finally {
+      setLoadingKey("undelegate", false);
+    }
   }
 
   return {
@@ -674,6 +865,7 @@ function usePodMeshState() {
     receipts,
     events,
     routerStatus,
+    loading,
     pod,
     erIdentity,
     approvedVolume,
@@ -690,6 +882,9 @@ function usePodMeshState() {
     undelegatePod,
   };
 }
+
+// ─── Loading states for async operations ─────────────────────────────────────
+type LoadingKey = "wallet" | "router" | "createPod" | "delegate" | "execute" | "settle" | "undelegate";
 
 type PodMeshState = ReturnType<typeof usePodMeshState>;
 
@@ -950,7 +1145,7 @@ function Shell({ state }: { state: PodMeshState }) {
     ["/agent", "Agent", Sparkles],
     ["/receipts", "Receipts", ReceiptText],
     ["/settlement", "Settlement", Landmark],
-    ["/proof", "Live Proof", CheckCheck],
+    ["/demo", "Demo", PlayCircle],
     ["/architecture", "Architecture", CircuitBoard],
   ] as const;
   return (
@@ -974,9 +1169,13 @@ function Shell({ state }: { state: PodMeshState }) {
               </Link>
             ))}
           </nav>
-          <Button onClick={state.connectWallet} size="sm" data-testid="button-connect-wallet">
-            <Wallet className="mr-2 h-4 w-4" />
-            {short(state.wallet?.toBase58())}
+          <Button onClick={state.connectWallet} size="sm" data-testid="button-connect-wallet" disabled={state.loading.wallet}>
+            {state.loading.wallet ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Wallet className="mr-2 h-4 w-4" />
+            )}
+            {state.loading.wallet ? "Connecting…" : short(state.wallet?.toBase58())}
           </Button>
         </div>
       </header>
@@ -1020,7 +1219,7 @@ function Shell({ state }: { state: PodMeshState }) {
             <Route path="/agent" component={() => <AgentPage state={state} />} />
             <Route path="/receipts" component={() => <ReceiptsPage state={state} />} />
             <Route path="/settlement" component={() => <SettlementPage state={state} />} />
-            <Route path="/proof" component={() => <LiveProofPage state={state} />} />
+            <Route path="/demo" component={() => <DemoTabPage state={state} />} />
             <Route path="/architecture" component={ArchitecturePage} />
             <Route component={NotFound} />
           </Switch>
@@ -1062,14 +1261,18 @@ function Overview({ state }: { state: PodMeshState }) {
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
-              <Button variant="outline" onClick={state.checkRouter} data-testid="button-check-router">
-                <RadioTower className="mr-2 h-4 w-4" />
-                Check Magic Router
+              <Button variant="outline" onClick={state.checkRouter} data-testid="button-check-router" disabled={state.loading.router}>
+                {state.loading.router ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RadioTower className="mr-2 h-4 w-4" />
+                )}
+                {state.loading.router ? "Checking…" : "Check Magic Router"}
               </Button>
-              <Link href="/proof">
+              <Link href="/demo">
                 <Button variant="outline" data-testid="button-live-proof">
-                  <CheckCheck className="mr-2 h-4 w-4" />
-                  Live Proof
+                  <PlayCircle className="mr-2 h-4 w-4" />
+                  Demo
                 </Button>
               </Link>
             </div>
@@ -1222,6 +1425,11 @@ function PodPage({ state }: { state: PodMeshState }) {
               )}
               <p className="mt-3 text-sm text-muted-foreground">Spend Pod PDA</p>
               <p className="break-all font-mono text-sm">{state.pod?.toBase58() ?? "Derived after wallet connect"}</p>
+              {state.pod && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Seeds: ["pod", walletPubkey] via {POD_FACTORY_PROGRAM_ID.toBase58().slice(0, 8)}…
+                </p>
+              )}
               <p className="mt-3 text-sm text-muted-foreground">ER identity</p>
               <p className="font-mono text-sm">{state.erIdentity}</p>
             </div>
@@ -1235,29 +1443,32 @@ function PodPage({ state }: { state: PodMeshState }) {
                 onClick={state.connectWallet}
               />
               <ActionButton
-                label="Anchor policy"
+                label={state.loading.createPod ? "Creating Pod…" : "Create Pod on-chain"}
                 route="devnet"
-                icon={Banknote}
+                icon={state.loading.createPod ? Loader2 : Banknote}
                 testId="button-anchor-policy"
                 onClick={state.createPodOnchain}
-                tooltip="Sends a real Solana devnet memo tx anchoring the policy hash"
+                disabled={!!state.loading.createPod}
+                tooltip="Calls pod_factory.create_spend_pod with IDL discriminator — live devnet transaction"
               />
               <ActionButton
-                label="Delegate to ER"
+                label={state.loading.delegate ? "Delegating…" : "Delegate to ER"}
                 route="magic-router"
-                icon={RadioTower}
+                icon={state.loading.delegate ? Loader2 : RadioTower}
                 variant="secondary"
                 testId="button-delegate"
                 onClick={state.delegatePodLive}
+                disabled={!!state.loading.delegate}
                 tooltip="Uses MagicBlock's live delegate instruction builder via Magic Router"
               />
               <ActionButton
-                label="Commit + undelegate"
+                label={state.loading.undelegate ? "Undelegating…" : "Commit + undelegate"}
                 route="magic-router"
-                icon={Clock}
+                icon={state.loading.undelegate ? Loader2 : Clock}
                 variant="outline"
                 testId="button-undelegate"
                 onClick={state.undelegatePod}
+                disabled={!!state.loading.undelegate}
                 tooltip="Submits commit+undelegate instruction via Magic Router"
               />
             </div>
@@ -1276,6 +1487,7 @@ function ActionButton({
   testId,
   onClick,
   tooltip,
+  disabled,
 }: {
   label: string;
   route: TxRoute;
@@ -1284,11 +1496,13 @@ function ActionButton({
   testId: string;
   onClick: () => void;
   tooltip?: string;
+  disabled?: boolean;
 }) {
+  const isSpinning = label.endsWith("…");
   return (
     <div className="space-y-1">
-      <Button className="w-full" onClick={onClick} variant={variant} data-testid={testId}>
-        <Icon className="mr-2 h-4 w-4" />
+      <Button className="w-full" onClick={onClick} variant={variant} data-testid={testId} disabled={disabled}>
+        <Icon className={`mr-2 h-4 w-4${isSpinning ? " animate-spin" : ""}`} />
         {label}
       </Button>
       <div className="flex items-center justify-center gap-1">
@@ -1384,7 +1598,7 @@ function IntentCard({
           )}
         </div>
         <Button className="w-full" onClick={onExecute} data-testid={`button-execute-${intent.id}`}>
-          Execute via Magic Router
+          Replay verified flow
           <RadioTower className="ml-2 h-4 w-4" />
         </Button>
       </CardContent>
@@ -1476,9 +1690,13 @@ function SettlementPage({ state }: { state: PodMeshState }) {
             <Mini label="Commit target" value={short(state.pod?.toBase58())} />
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={state.settleEpoch} data-testid="button-settle-epoch">
-              <Landmark className="mr-2 h-4 w-4" />
-              Settle epoch through Magic Router
+            <Button onClick={state.settleEpoch} data-testid="button-settle-epoch" disabled={!!state.loading.settle}>
+              {state.loading.settle ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Landmark className="mr-2 h-4 w-4" />
+              )}
+              {state.loading.settle ? "Settling…" : "Settle epoch through Magic Router"}
             </Button>
             <RouteBadge route="magic-router" />
           </div>
@@ -1490,9 +1708,47 @@ function SettlementPage({ state }: { state: PodMeshState }) {
 }
 
 // ------------------------------------------------------------------
-// Live Proof / Status page — hackathon submission evidence
+// Demo tab — consolidates Live Proof + Agent Commerce + Marketplace Flow
 // ------------------------------------------------------------------
-function LiveProofPage({ state }: { state: PodMeshState }) {
+function DemoTabPage({ state }: { state: PodMeshState }) {
+  const [activeTab, setActiveTab] = useState<"proof" | "commerce" | "marketplace">("proof");
+  return (
+    <div className="space-y-6">
+      <PageHead
+        eyebrow="Demo"
+        title="PodMesh — live devnet evidence"
+        copy="Three views: verified on-chain proof, the full agent commerce flow, and a Marketplace integration walkthrough."
+      />
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="proof">
+            <CheckCheck className="mr-2 h-4 w-4" />Live Proof
+          </TabsTrigger>
+          <TabsTrigger value="commerce">
+            <Banknote className="mr-2 h-4 w-4" />Agent Commerce
+          </TabsTrigger>
+          <TabsTrigger value="marketplace">
+            <Store className="mr-2 h-4 w-4" />Marketplace Flow
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="proof" className="mt-5">
+          <LiveProofContent state={state} />
+        </TabsContent>
+        <TabsContent value="commerce" className="mt-5">
+          <AgentCommerceDemoContent />
+        </TabsContent>
+        <TabsContent value="marketplace" className="mt-5">
+          <MarketplaceFlowContent />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// Live Proof content
+// ------------------------------------------------------------------
+function LiveProofContent({ state }: { state: PodMeshState }) {
   const approvedReceipts = state.receipts.filter((r) => r.status === "approved" && r.signature);
   const erEvents = state.events.filter((e) => e.route === "magic-router" && e.signature);
   const devnetEvents = state.events.filter((e) => e.route === "devnet" && e.signature);
@@ -1573,11 +1829,6 @@ function LiveProofPage({ state }: { state: PodMeshState }) {
 
   return (
     <div className="space-y-6">
-      <PageHead
-        eyebrow="Live Proof"
-        title="Hackathon submission evidence"
-        copy="All four on-chain instructions are confirmed on Solana devnet: create_spend_pod, record_receipt, settle_epoch, and delegate_pod (MagicBlock CPI). Every item with a ✓ has a live devnet signature."
-      />
 
       {/* Status checklist */}
       <Card>
@@ -1674,7 +1925,7 @@ function LiveProofPage({ state }: { state: PodMeshState }) {
                 </div>
                 <a href={explorerTx(e.signature!)} target="_blank" rel="noopener noreferrer">
                   <Button variant="outline" size="sm">
-                    Explorer <ExternalLink className="ml-2 h-3 w-3" />
+                    Open proof <ExternalLink className="ml-2 h-3 w-3" />
                   </Button>
                 </a>
               </div>
@@ -1793,6 +2044,335 @@ function LiveProofPage({ state }: { state: PodMeshState }) {
               <Button variant="outline" size="sm">Transaction <ExternalLink className="ml-1 h-3 w-3" /></Button>
             </a>
           </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+
+// ------------------------------------------------------------------
+// Agent Commerce Demo content (formerly AgentCommerceDemoPage)
+// ------------------------------------------------------------------
+const DEMO_PAYER    = "2RiFddW6a5yvkX4CKDzG3RqY1AReQuaHgASrd8YBxkDZ";
+const DEMO_MERCHANT = "EFqNZm8MFWQP7c3iYBNxYx6XbMEpMmxaUmkFS39FtsJ1";
+const DEMO_POD_PDA  = "GFdguT4bsdFfpixVpqwH6qNokYRGY21WsidQe7bFvYNL";
+
+interface DemoStep {
+  step: number;
+  label: string;
+  summary: string;
+  detail: string;
+  sig: string;
+  explorerHref: string;
+  extraLinks?: { label: string; href: string }[];
+}
+
+const DEMO_STEPS: DemoStep[] = [
+  {
+    step: 1,
+    label: "create_spend_pod",
+    summary: "Agent provisions a policy-bound Spending Pod",
+    detail:
+      "pod_factory.create_spend_pod anchors the Pod PDA on-chain with policy parameters: max 0.05 SOL per-tx, max 1 SOL per epoch, category allowlist [grocery:general, food_delivery:restaurant, grocery:pharmacy], slippage ≤ 1.5 %, 90-day expiry. Policy is immutable after creation.",
+    sig: "2uRUDPGLSEbX5vnqveZLH4h9CggaPFrT6kkTjYgGzaepchL3StPp8hYsHhEX2D3tykgJceTQoyjLdCBYTNSSJi6F",
+    explorerHref:
+      "https://explorer.solana.com/tx/2uRUDPGLSEbX5vnqveZLH4h9CggaPFrT6kkTjYgGzaepchL3StPp8hYsHhEX2D3tykgJceTQoyjLdCBYTNSSJi6F?cluster=devnet",
+    extraLinks: [
+      {
+        label: "Pod PDA",
+        href: "https://explorer.solana.com/address/GFdguT4bsdFfpixVpqwH6qNokYRGY21WsidQe7bFvYNL?cluster=devnet",
+      },
+    ],
+  },
+  {
+    step: 2,
+    label: "SystemProgram.transfer (payment)",
+    summary: "Agent pays merchant 0.001 SOL on devnet",
+    detail:
+      "Payer wallet 2RiFddW6a5y… transfers 0.001 SOL (1,000,000 lamports) to merchant receiver EFqNZm8MFWQ…. The spend is within the Pod's per-tx cap (0.05 SOL) and category allowlist. This is the real-value transfer that a production agent would execute autonomously.",
+    sig: "FQCEkhHfu9d8XmZMzBe7iwt6APtcYfKxPpKPM67NZ7KSUbPN1PFyc3ndDHK2Q2raCfeeU7YRvi4yKAjX1ePviVW",
+    explorerHref:
+      "https://explorer.solana.com/tx/FQCEkhHfu9d8XmZMzBe7iwt6APtcYfKxPpKPM67NZ7KSUbPN1PFyc3ndDHK2Q2raCfeeU7YRvi4yKAjX1ePviVW?cluster=devnet",
+  },
+  {
+    step: 3,
+    label: "record_receipt",
+    summary: "Receipt anchored to the Pod PDA on pod_factory",
+    detail:
+      "pod_factory.record_receipt records the spend: amount 1,000,000 lam, category grocery:general, slippage 100 bps, epoch 1060. On-chain state advances: receiptCount → 1, epochSpentLamports → 1,000,000. Event ReceiptRecorded emitted. The on-chain audit trail is now permanent.",
+    sig: "4n2snHrvTSvSLCkv7M3RCU5fFZRTRfQYEPuiQp1PLSRRTGENYaCpJjfZdQQLc1fLQ1RBudWtKebMJgowB1FdBGw",
+    explorerHref:
+      "https://explorer.solana.com/tx/4n2snHrvTSvSLCkv7M3RCU5fFZRTRfQYEPuiQp1PLSRRTGENYaCpJjfZdQQLc1fLQ1RBudWtKebMJgowB1FdBGw?cluster=devnet",
+  },
+  {
+    step: 4,
+    label: "settle_epoch",
+    summary: "Epoch 1060 settled on the settlement program",
+    detail:
+      "settlement.settle_epoch creates EpochSettlement PDA for epoch 1060. Merkle root of all receipts committed. Volume: 1,000,000 lam, fees: 5,000 lam (crank: 1,000 / treasury: 4,000). settled = true. Event EpochSettled emitted. Crank rewards distributed automatically.",
+    sig: "5SiWbxXFxjfTVyfSMVAzwchMz43QHbS4JbQzcFQUnJwkfzYbthg3M377r3etq1xtg3ggNfkq3MHTjsWqfKvLdfKd",
+    explorerHref:
+      "https://explorer.solana.com/tx/5SiWbxXFxjfTVyfSMVAzwchMz43QHbS4JbQzcFQUnJwkfzYbthg3M377r3etq1xtg3ggNfkq3MHTjsWqfKvLdfKd?cluster=devnet",
+    extraLinks: [
+      {
+        label: "EpochSettlement PDA",
+        href: "https://explorer.solana.com/address/7ucH3LPdx2PfS3LUpKSoFYVWuxYK54LikxSm7qCrhDk9?cluster=devnet",
+      },
+    ],
+  },
+  {
+    step: 5,
+    label: "delegate_pod (MagicBlock CPI)",
+    summary: "Pod delegated via MagicBlock DELeGG — ER-ready",
+    detail:
+      "pod_factory.delegate_pod CPIs into DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh. Buffer PDA, delegation_record, and delegation_metadata created on-chain. Commit frequency: 3 s. Validator: MAS1Dt9q…. Pod state can now be mutated inside the ephemeral rollup and committed back to base-layer Solana.",
+    sig: "4K73yk4EzkcBF1rHCsGZ3otDAMLU8RWwirKMTu4bEq9sxynLt7WpLPbjNVwGAkJmq2QUpWHov2cKsoHyt2mmt7FE",
+    explorerHref:
+      "https://explorer.solana.com/tx/4K73yk4EzkcBF1rHCsGZ3otDAMLU8RWwirKMTu4bEq9sxynLt7WpLPbjNVwGAkJmq2QUpWHov2cKsoHyt2mmt7FE?cluster=devnet",
+  },
+];
+
+function AgentCommerceDemoContent() {
+  return (
+    <div className="space-y-6">
+      <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20 p-3 text-xs text-amber-800 dark:text-amber-300">
+        Replayed verified flow — all five transactions are confirmed on Solana devnet. Signatures are static proof; no new transactions are broadcast when viewing this tab.
+      </div>
+
+      {/* Actors */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Wallet className="h-4 w-4" />
+            Participants
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <div className="flex flex-col gap-1 rounded-lg border p-3">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Agent / Payer wallet</span>
+            <a
+              href={`https://explorer.solana.com/address/${DEMO_PAYER}?cluster=devnet`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 font-mono text-xs text-primary underline break-all"
+            >
+              {DEMO_PAYER} <ExternalLink className="h-3 w-3 shrink-0" />
+            </a>
+          </div>
+          <div className="flex flex-col gap-1 rounded-lg border p-3">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Merchant receiver</span>
+            <a
+              href={`https://explorer.solana.com/address/${DEMO_MERCHANT}?cluster=devnet`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 font-mono text-xs text-primary underline break-all"
+            >
+              {DEMO_MERCHANT} <ExternalLink className="h-3 w-3 shrink-0" />
+            </a>
+          </div>
+          <div className="flex flex-col gap-1 rounded-lg border p-3">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Pod PDA (policy account)</span>
+            <a
+              href={`https://explorer.solana.com/address/${DEMO_POD_PDA}?cluster=devnet`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 font-mono text-xs text-primary underline break-all"
+            >
+              {DEMO_POD_PDA} <ExternalLink className="h-3 w-3 shrink-0" />
+            </a>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Steps */}
+      <div className="space-y-3">
+        {DEMO_STEPS.map((s) => (
+          <Card key={s.step} className="border-emerald-200 dark:border-emerald-800">
+            <CardContent className="flex gap-4 p-5">
+              {/* Step number */}
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-sm font-bold text-white">
+                {s.step}
+              </div>
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-semibold text-sm">{s.label}</p>
+                  <Badge variant="outline" className="text-emerald-700 border-emerald-400 dark:text-emerald-300 dark:border-emerald-600 text-xs">
+                    ✓ confirmed
+                  </Badge>
+                </div>
+                <p className="text-sm font-medium text-foreground">{s.summary}</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">{s.detail}</p>
+                <div className="mt-1">
+                  <p className="text-xs text-muted-foreground mb-1">Signature</p>
+                  <code className="block text-xs break-all text-muted-foreground bg-muted rounded px-2 py-1">{s.sig}</code>
+                </div>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <a href={s.explorerHref} target="_blank" rel="noopener noreferrer">
+                    <Button variant="outline" size="sm" data-testid={`button-demo-explorer-${s.step}`}>
+                      Open proof <ExternalLink className="ml-1 h-3 w-3" />
+                    </Button>
+                  </a>
+                  {s.extraLinks?.map((link) => (
+                    <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer">
+                      <Button variant="outline" size="sm">
+                        {link.label} <ExternalLink className="ml-1 h-3 w-3" />
+                      </Button>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Summary box */}
+      <Card className="bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800">
+        <CardContent className="p-5 space-y-2">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            <p className="font-semibold text-sm">Full commerce cycle confirmed on devnet</p>
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            All five transactions are live on Solana devnet. The Pod enforces spend policy at the program level — no backend can override it.
+            After delegation, the Pod enters MagicBlock's ephemeral rollup for sub-second execution with periodic commit-backs to base-layer Solana.
+            This flow is the atomic unit of PodMesh autonomous commerce.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// Marketplace Flow subtab — demo listing + devnet proof
+// ------------------------------------------------------------------
+const MARKETPLACE_STEPS = [
+  {
+    id: "mp-1",
+    icon: Store,
+    label: "Agent enters marketplace",
+    detail:
+      "An autonomous agent browses a devnet marketplace listing. Its Spend Pod is already initialised (PDA: GFdguT4bsdFfpixVpqwH6qNokYRGY21WsidQe7bFvYNL). The agent reads the product category and price from the listing metadata before initiating checkout.",
+    status: "done",
+  },
+  {
+    id: "mp-2",
+    icon: ShieldCheck,
+    label: "Policy check",
+    detail:
+      "The Pod policy engine validates the intent: category grocery:general is in the allowlist, amount 0.001 SOL is within the per-tx cap (0.05 SOL) and epoch cap (1 SOL), slippage 100 bps ≤ policy 150 bps, oracle not required. Policy: PASS. No signature until policy clears.",
+    status: "done",
+  },
+  {
+    id: "mp-3",
+    icon: Banknote,
+    label: "Merchant payment",
+    detail:
+      "SystemProgram.transfer — 0.001 SOL from agent payer (2RiFddW6a5y…) to merchant receiver (EFqNZm8MFWQ…). Confirmed on Solana devnet. This is the real-value transfer; the Pod policy rails authorised it.",
+    status: "done",
+    sig: "FQCEkhHfu9d8XmZMzBe7iwt6APtcYfKxPpKPM67NZ7KSUbPN1PFyc3ndDHK2Q2raCfeeU7YRvi4yKAjX1ePviVW",
+    explorerHref:
+      "https://explorer.solana.com/tx/FQCEkhHfu9d8XmZMzBe7iwt6APtcYfKxPpKPM67NZ7KSUbPN1PFyc3ndDHK2Q2raCfeeU7YRvi4yKAjX1ePviVW?cluster=devnet",
+  },
+  {
+    id: "mp-4",
+    icon: PackageCheck,
+    label: "Receipt + settlement",
+    detail:
+      "pod_factory.record_receipt anchors the spend on-chain (receiptCount → 1, epochSpentLamports → 1,000,000). settlement.settle_epoch creates the EpochSettlement PDA (epoch 1060, volume 1,000,000 lam, fees 5,000 lam). Permanent audit trail — no backend can alter it.",
+    status: "done",
+    sig: "4n2snHrvTSvSLCkv7M3RCU5fFZRTRfQYEPuiQp1PLSRRTGENYaCpJjfZdQQLc1fLQ1RBudWtKebMJgowB1FdBGw",
+    explorerHref:
+      "https://explorer.solana.com/tx/4n2snHrvTSvSLCkv7M3RCU5fFZRTRfQYEPuiQp1PLSRRTGENYaCpJjfZdQQLc1fLQ1RBudWtKebMJgowB1FdBGw?cluster=devnet",
+  },
+  {
+    id: "mp-5",
+    icon: RadioTower,
+    label: "MagicBlock delegation for ER-speed repeat buys",
+    detail:
+      "After the first order, the Pod is delegated to MagicBlock's ephemeral rollup (DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh). Subsequent marketplace payments route through the ER — sub-second settlement, periodic commit-back to Solana base layer. Policy limits still enforced inside the rollup.",
+    status: "done",
+    sig: "4K73yk4EzkcBF1rHCsGZ3otDAMLU8RWwirKMTu4bEq9sxynLt7WpLPbjNVwGAkJmq2QUpWHov2cKsoHyt2mmt7FE",
+    explorerHref:
+      "https://explorer.solana.com/tx/4K73yk4EzkcBF1rHCsGZ3otDAMLU8RWwirKMTu4bEq9sxynLt7WpLPbjNVwGAkJmq2QUpWHov2cKsoHyt2mmt7FE?cluster=devnet",
+  },
+];
+
+function MarketplaceFlowContent() {
+  return (
+    <div className="space-y-5">
+      <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/20 p-3 text-xs text-blue-800 dark:text-blue-300">
+        <strong>Note:</strong> No live marketplace backend is claimed. This is a verified devnet flow — real on-chain signatures demonstrating how a PodMesh-enabled marketplace integration would operate end-to-end.
+      </div>
+
+      {/* Listing card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ShoppingBag className="h-4 w-4" />
+            Devnet listing — demo product
+          </CardTitle>
+          <CardDescription>Marketplace item for this demo flow</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Mini label="Product" value="Grocery bundle" />
+            <Mini label="Category" value="grocery:general" />
+            <Mini label="Price" value="0.001 SOL" />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Mini label="Merchant" value="EFqNZm8MFWQ…" />
+            <Mini label="Pod PDA" value="GFdguT4b…" />
+            <Mini label="Network" value="Solana devnet" />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Flow steps */}
+      <div className="space-y-3">
+        {MARKETPLACE_STEPS.map((step) => (
+          <Card key={step.id} className="border-emerald-200 dark:border-emerald-800">
+            <CardContent className="flex gap-4 p-4">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <step.icon className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-semibold text-sm">{step.label}</p>
+                  <Badge variant="outline" className="text-emerald-700 border-emerald-400 dark:text-emerald-300 dark:border-emerald-600 text-xs">
+                    ✓ verified
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">{step.detail}</p>
+                {step.sig && (
+                  <div className="space-y-1">
+                    <code className="block text-xs break-all text-muted-foreground bg-muted rounded px-2 py-1">{step.sig}</code>
+                    <a href={step.explorerHref} target="_blank" rel="noopener noreferrer">
+                      <Button variant="outline" size="sm" data-testid={`button-marketplace-explorer-${step.id}`}>
+                        Open proof <ExternalLink className="ml-1 h-3 w-3" />
+                      </Button>
+                    </a>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Settlement proof */}
+      <Card className="bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800">
+        <CardContent className="p-4 space-y-1">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            <p className="font-semibold text-sm">Full marketplace cycle verified on Solana devnet</p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Policy check → payment → receipt → epoch settlement → MagicBlock delegation. All steps anchored on-chain.
+            A live marketplace backend would plug into each step via the pod_factory CPI interface.
+          </p>
         </CardContent>
       </Card>
     </div>

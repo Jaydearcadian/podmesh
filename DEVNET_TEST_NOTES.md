@@ -281,3 +281,51 @@ were created on-chain.
 | CPI from settlement → pod_factory | Pending  | Full cross-program integration test |
 
 All four primary on-chain instructions now execute successfully on devnet.
+
+---
+
+## Live Payment Transfer: Agent → Merchant
+
+### Details
+
+| Field              | Value |
+| ------------------ | ----- |
+| **Instruction**    | SystemProgram.transfer (0.001 SOL) |
+| **Payer / Agent wallet** | `2RiFddW6a5yvkX4CKDzG3RqY1AReQuaHgASrd8YBxkDZ` |
+| **Merchant receiver**    | `EFqNZm8MFWQP7c3iYBNxYx6XbMEpMmxaUmkFS39FtsJ1` |
+| **Amount**         | 0.001 SOL (1,000,000 lamports) |
+| **Network**        | Solana devnet |
+
+**Transaction Signature:**
+```
+FQCEkhHfu9d8XmZMzBe7iwt6APtcYfKxPpKPM67NZ7KSUbPN1PFyc3ndDHK2Q2raCfeeU7YRvi4yKAjX1ePviVW
+```
+
+**Explorer:**
+- [Transaction](https://explorer.solana.com/tx/FQCEkhHfu9d8XmZMzBe7iwt6APtcYfKxPpKPM67NZ7KSUbPN1PFyc3ndDHK2Q2raCfeeU7YRvi4yKAjX1ePviVW?cluster=devnet)
+- [Payer account](https://explorer.solana.com/address/2RiFddW6a5yvkX4CKDzG3RqY1AReQuaHgASrd8YBxkDZ?cluster=devnet)
+- [Merchant account](https://explorer.solana.com/address/EFqNZm8MFWQP7c3iYBNxYx6XbMEpMmxaUmkFS39FtsJ1?cluster=devnet)
+
+### Context
+
+This transfer represents the agent's autonomous payment step in the Agent Commerce Demo flow:
+
+1. `create_spend_pod` — policy-bound Pod created with 0.05 SOL per-tx cap
+2. **`SystemProgram.transfer 0.001 SOL`** ← this transfer (within policy limits)
+3. `record_receipt` — spend anchored to Pod PDA on pod_factory
+4. `settle_epoch` — epoch 1060 settled on settlement program
+5. `delegate_pod` — Pod delegated via MagicBlock CPI for ER-ready execution
+
+The transfer amount (0.001 SOL) is within the Pod's max_per_tx_lamports (50,000,000 = 0.05 SOL) and matches the amount recorded in `record_receipt`.
+
+---
+
+## Updated E2E Instruction Matrix
+
+| Step | Instruction / Action            | Program / Context                  | Signature                                      | Status |
+| ---- | ------------------------------- | ---------------------------------- | ---------------------------------------------- | ------ |
+| 1    | `create_spend_pod`              | pod_factory                        | `2uRUDPGLSEb...SSJi6F`                         | ✓ Done |
+| 2    | `SystemProgram.transfer 0.001 SOL` | Solana base layer               | `FQCEkhHfu9d...PviVW`                          | ✓ Done |
+| 3    | `record_receipt`                | pod_factory                        | `4n2snHrvTSv...FdBGw`                          | ✓ Done |
+| 4    | `settle_epoch`                  | settlement                         | `5SiWbxXFxjf...dfKd`                           | ✓ Done |
+| 5    | `delegate_pod` (MagicBlock CPI) | pod_factory → DELeGG               | `4K73yk4Ezkc...mt7FE`                          | ✓ Done |
