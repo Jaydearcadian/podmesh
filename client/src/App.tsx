@@ -1550,7 +1550,7 @@ function LiveProofPage({ state }: { state: PodMeshState }) {
       label: "Anchor programs deployed to Solana devnet",
       status: "pass",
       detail:
-        "pod_factory (FXMgSbYBh6fQFCPQ7My5CAKW8sWgUTHQwo7gqLykp4fm) and settlement (A9LFQfSS55CfCzNHYx7UGZpaWTvPaT19RWRvykhpohnc) are executable on Solana devnet. create_spend_pod called successfully — see deployment signature below.",
+        "pod_factory (FXMgSbYBh6fQFCPQ7My5CAKW8sWgUTHQwo7gqLykp4fm) and settlement (A9LFQfSS55CfCzNHYx7UGZpaWTvPaT19RWRvykhpohnc) are executable on Solana devnet. All four instructions confirmed: create_spend_pod, record_receipt, settle_epoch, delegate_pod.",
       explorerUrl: explorerAccount("FXMgSbYBh6fQFCPQ7My5CAKW8sWgUTHQwo7gqLykp4fm"),
     },
     {
@@ -1576,7 +1576,7 @@ function LiveProofPage({ state }: { state: PodMeshState }) {
       <PageHead
         eyebrow="Live Proof"
         title="Hackathon submission evidence"
-        copy="Both programs are deployed to Solana devnet and the create_spend_pod instruction has been called successfully. Every item with a ✓ has on-chain proof. Remaining amber items reflect CPI/delegation integration testing still in progress."
+        copy="All four on-chain instructions are confirmed on Solana devnet: create_spend_pod, record_receipt, settle_epoch, and delegate_pod (MagicBlock CPI). Every item with a ✓ has a live devnet signature."
       />
 
       {/* Status checklist */}
@@ -1690,7 +1690,7 @@ function LiveProofPage({ state }: { state: PodMeshState }) {
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />
             Deployed programs — on-chain proof
           </CardTitle>
-          <CardDescription>Both programs are executable on Solana devnet. The E2E test script called create_spend_pod successfully.</CardDescription>
+          <CardDescription>Both programs are executable on Solana devnet. All four E2E instruction tests have confirmed devnet signatures.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20 p-3 space-y-2">
@@ -1722,25 +1722,76 @@ function LiveProofPage({ state }: { state: PodMeshState }) {
               <Button variant="outline" size="sm">View program on Explorer <ExternalLink className="ml-1 h-3 w-3" /></Button>
             </a>
           </div>
+
+          {/* create_spend_pod */}
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20 p-3 space-y-2">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              <p className="text-sm font-medium">E2E test: create_spend_pod called on devnet</p>
+              <p className="text-sm font-medium">create_spend_pod — Solana devnet</p>
             </div>
             <p className="text-xs text-muted-foreground">Pod PDA: <code className="font-mono">GFdguT4bsdFfpixVpqwH6qNokYRGY21WsidQe7bFvYNL</code></p>
             <code className="block text-xs break-all text-muted-foreground">2uRUDPGLSEbX5vnqveZLH4h9CggaPFrT6kkTjYgGzaepchL3StPp8hYsHhEX2D3tykgJceTQoyjLdCBYTNSSJi6F</code>
             <div className="flex gap-2 flex-wrap">
               <a href="https://explorer.solana.com/tx/2uRUDPGLSEbX5vnqveZLH4h9CggaPFrT6kkTjYgGzaepchL3StPp8hYsHhEX2D3tykgJceTQoyjLdCBYTNSSJi6F?cluster=devnet" target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm">Transaction on Explorer <ExternalLink className="ml-1 h-3 w-3" /></Button>
+                <Button variant="outline" size="sm">Transaction <ExternalLink className="ml-1 h-3 w-3" /></Button>
               </a>
               <a href="https://explorer.solana.com/address/GFdguT4bsdFfpixVpqwH6qNokYRGY21WsidQe7bFvYNL?cluster=devnet" target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm">Pod PDA on Explorer <ExternalLink className="ml-1 h-3 w-3" /></Button>
+                <Button variant="outline" size="sm">Pod PDA <ExternalLink className="ml-1 h-3 w-3" /></Button>
               </a>
             </div>
           </div>
-          <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20 p-3">
-            <p className="text-xs font-medium text-amber-800 dark:text-amber-300">Full CPI delegation testing still in progress</p>
-            <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">create_spend_pod ✓ complete. delegate_pod (MagicBlock delegation round-trip) and cross-program settlement CPI are next.</p>
+
+          {/* record_receipt */}
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <p className="text-sm font-medium">record_receipt — Solana devnet</p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              0.001 SOL spend recorded on Pod PDA. Category: grocery:general. Epoch 1060.
+              receiptCount advanced to 1, epochSpentLamports: 1,000,000. Event: ReceiptRecorded.
+            </p>
+            <code className="block text-xs break-all text-muted-foreground">4n2snHrvTSvSLCkv7M3RCU5fFZRTRfQYEPuiQp1PLSRRTGENYaCpJjfZdQQLc1fLQ1RBudWtKebMJgowB1FdBGw</code>
+            <a href="https://explorer.solana.com/tx/4n2snHrvTSvSLCkv7M3RCU5fFZRTRfQYEPuiQp1PLSRRTGENYaCpJjfZdQQLc1fLQ1RBudWtKebMJgowB1FdBGw?cluster=devnet" target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="sm">Transaction <ExternalLink className="ml-1 h-3 w-3" /></Button>
+            </a>
+          </div>
+
+          {/* settle_epoch */}
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <p className="text-sm font-medium">settle_epoch — Solana devnet (settlement program)</p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Epoch 1060 settled. EpochSettlement PDA: <code className="font-mono">7ucH3LPdx2PfS3LUpKSoFYVWuxYK54LikxSm7qCrhDk9</code>.
+              volume: 1,000,000 lam, receiptCount: 1, fees: 5,000 lam (crank: 1,000 / treasury: 4,000). settled: true. Event: EpochSettled.
+            </p>
+            <code className="block text-xs break-all text-muted-foreground">5SiWbxXFxjfTVyfSMVAzwchMz43QHbS4JbQzcFQUnJwkfzYbthg3M377r3etq1xtg3ggNfkq3MHTjsWqfKvLdfKd</code>
+            <div className="flex gap-2 flex-wrap">
+              <a href="https://explorer.solana.com/tx/5SiWbxXFxjfTVyfSMVAzwchMz43QHbS4JbQzcFQUnJwkfzYbthg3M377r3etq1xtg3ggNfkq3MHTjsWqfKvLdfKd?cluster=devnet" target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" size="sm">Transaction <ExternalLink className="ml-1 h-3 w-3" /></Button>
+              </a>
+              <a href="https://explorer.solana.com/address/7ucH3LPdx2PfS3LUpKSoFYVWuxYK54LikxSm7qCrhDk9?cluster=devnet" target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" size="sm">EpochSettlement PDA <ExternalLink className="ml-1 h-3 w-3" /></Button>
+              </a>
+            </div>
+          </div>
+
+          {/* delegate_pod */}
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <p className="text-sm font-medium">delegate_pod — MagicBlock CPI (pod_factory → DELeGG)</p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Pod PDA delegated to MagicBlock ephemeral rollup via CPI into DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh.
+              Buffer, delegation_record, and delegation_metadata accounts created. Commit frequency: 3 s. Validator: MAS1Dt9q…
+            </p>
+            <code className="block text-xs break-all text-muted-foreground">4K73yk4EzkcBF1rHCsGZ3otDAMLU8RWwirKMTu4bEq9sxynLt7WpLPbjNVwGAkJmq2QUpWHov2cKsoHyt2mmt7FE</code>
+            <a href="https://explorer.solana.com/tx/4K73yk4EzkcBF1rHCsGZ3otDAMLU8RWwirKMTu4bEq9sxynLt7WpLPbjNVwGAkJmq2QUpWHov2cKsoHyt2mmt7FE?cluster=devnet" target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="sm">Transaction <ExternalLink className="ml-1 h-3 w-3" /></Button>
+            </a>
           </div>
         </CardContent>
       </Card>

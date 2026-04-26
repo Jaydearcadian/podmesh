@@ -107,15 +107,177 @@ const { BN, AnchorProvider, Program, Wallet, setProvider } = anchor;  // destruc
 
 ---
 
+## E2E Test: `record_receipt`
+
+### Test Script
+
+`scripts/record-receipt.ts` — calls `record_receipt` on the existing Pod PDA.
+
+```bash
+npx tsx scripts/record-receipt.ts
+```
+
+### Test Execution (2025-04-26)
+
+**Owner:** `2RiFddW6a5yvkX4CKDzG3RqY1AReQuaHgASrd8YBxkDZ`
+
+**Pod PDA:** `GFdguT4bsdFfpixVpqwH6qNokYRGY21WsidQe7bFvYNL`
+
+**Transaction Signature:**
+```
+4n2snHrvTSvSLCkv7M3RCU5fFZRTRfQYEPuiQp1PLSRRTGENYaCpJjfZdQQLc1fLQ1RBudWtKebMJgowB1FdBGw
+```
+
+**Explorer:**
+- [Transaction](https://explorer.solana.com/tx/4n2snHrvTSvSLCkv7M3RCU5fFZRTRfQYEPuiQp1PLSRRTGENYaCpJjfZdQQLc1fLQ1RBudWtKebMJgowB1FdBGw?cluster=devnet)
+
+### Args Used
+
+| Argument          | Value                     | Notes                              |
+| ----------------- | ------------------------- | ---------------------------------- |
+| `amount_lamports` | 1,000,000 (0.001 SOL)    | Below 0.05 SOL per-tx cap          |
+| `category_hash`   | `grocery:general` hash    | Must match pod.allowed_category_hashes |
+| `slippage_bps`    | 100                       | Below 150 bps cap                  |
+| `oracle_attested` | false                     | Pod does not require oracle        |
+| `epoch`           | 1060 (devnet current)     | From `connection.getEpochInfo()`   |
+| `receipt_hash`    | timestamp-derived         | Unique per receipt                 |
+
+### On-Chain Pod State After record_receipt
+
+```json
+{
+  "receiptCount": "1",
+  "epochSpentLamports": "1000000",
+  "lastEpoch": "1060"
+}
+```
+
+Event emitted: `ReceiptRecorded { pod, owner, amount_lamports: 1000000, epoch: 1060, sequence: 1 }`
+
+---
+
+## E2E Test: `settle_epoch`
+
+### Test Script
+
+`scripts/settle-epoch.ts` — calls `settle_epoch` on the settlement program.
+
+```bash
+npx tsx scripts/settle-epoch.ts
+```
+
+### Test Execution (2025-04-26)
+
+**Crank Authority:** `2RiFddW6a5yvkX4CKDzG3RqY1AReQuaHgASrd8YBxkDZ`
+
+**Epoch Settlement PDA:** `7ucH3LPdx2PfS3LUpKSoFYVWuxYK54LikxSm7qCrhDk9`
+(seeds: `[b"epoch", 1060u64.to_le_bytes()]`)
+
+**Transaction Signature:**
+```
+5SiWbxXFxjfTVyfSMVAzwchMz43QHbS4JbQzcFQUnJwkfzYbthg3M377r3etq1xtg3ggNfkq3MHTjsWqfKvLdfKd
+```
+
+**Explorer:**
+- [Transaction](https://explorer.solana.com/tx/5SiWbxXFxjfTVyfSMVAzwchMz43QHbS4JbQzcFQUnJwkfzYbthg3M377r3etq1xtg3ggNfkq3MHTjsWqfKvLdfKd?cluster=devnet)
+- [Epoch Settlement PDA](https://explorer.solana.com/address/7ucH3LPdx2PfS3LUpKSoFYVWuxYK54LikxSm7qCrhDk9?cluster=devnet)
+
+### Args Used
+
+| Argument                 | Value                      | Notes                               |
+| ------------------------ | -------------------------- | ----------------------------------- |
+| `epoch`                  | 1060                       | Devnet current epoch                |
+| `merkle_root`            | deterministic hash         | `podmesh-epoch-1060-<timestamp>`    |
+| `total_volume_lamports`  | 1,000,000 (0.001 SOL)     | Matches receipt recorded above      |
+| `receipt_count`          | 1                          | One receipt in this epoch           |
+| `total_fees_lamports`    | 5,000 (0.5% of volume)    | 5% → crank reward, 95% → treasury   |
+
+### On-Chain EpochSettlement State After settle_epoch
+
+```json
+{
+  "authority":            "2RiFddW6a5yvkX4CKDzG3RqY1AReQuaHgASrd8YBxkDZ",
+  "epoch":                1060,
+  "totalVolumeLamports":  "1000000",
+  "receiptCount":         "1",
+  "totalFeesLamports":    "5000",
+  "crankRewardLamports":  "1000",
+  "treasuryLamports":     "4000",
+  "settled":              true
+}
+```
+
+Event emitted: `EpochSettled { epoch: 1060, total_volume_lamports: 1000000, receipt_count: 1, ... }`
+
+---
+
+## E2E Test: `delegate_pod` (MagicBlock Ephemeral Rollup)
+
+### Test Script
+
+`scripts/delegate-pod.ts` — calls `delegate_pod` which CPIs into the MagicBlock delegation program.
+
+```bash
+npx tsx scripts/delegate-pod.ts
+```
+
+### Test Execution (2025-04-26)
+
+**Owner:** `2RiFddW6a5yvkX4CKDzG3RqY1AReQuaHgASrd8YBxkDZ`
+
+**Pod PDA:** `GFdguT4bsdFfpixVpqwH6qNokYRGY21WsidQe7bFvYNL`
+
+**Delegation Accounts Derived:**
+```
+buffer PDA:           CcoYiQ6tiGo94yqQf1WkbV3eMphgDoRjsm2ih6HpKJwZ
+  seeds: [b"buffer", pod.key()] under pod_factory
+delegation_record:    41ALi2pbJvKd5YDcodUi3gBHXmn5cEnTbGcbFFah5652
+  seeds: [b"delegation", pod.key()] under DELeGG
+delegation_metadata:  5eeTGhbG8Pqr1DcByKWX1yMckQZa5XbFBJbyypYsrJWU
+  seeds: [b"delegation-metadata", pod.key()] under DELeGG
+```
+
+**Validator:** `MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57` (MagicBlock devnet default)
+
+**Delegation Program:** `DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh` (✓ deployed on devnet)
+
+**Transaction Signature:**
+```
+4K73yk4EzkcBF1rHCsGZ3otDAMLU8RWwirKMTu4bEq9sxynLt7WpLPbjNVwGAkJmq2QUpWHov2cKsoHyt2mmt7FE
+```
+
+**Explorer:**
+- [Transaction](https://explorer.solana.com/tx/4K73yk4EzkcBF1rHCsGZ3otDAMLU8RWwirKMTu4bEq9sxynLt7WpLPbjNVwGAkJmq2QUpWHov2cKsoHyt2mmt7FE?cluster=devnet)
+
+### Result
+
+✓ **delegate_pod succeeded.** The Pod PDA is now delegated to the MagicBlock ephemeral rollup
+with a 3-second commit frequency. The delegation CPI (pod_factory → DELeGG program) executed
+correctly on devnet. The pod's buffer, delegation record, and delegation metadata accounts
+were created on-chain.
+
+---
+
+## Full E2E Instruction Matrix
+
+| Instruction               | Program     | Signature (devnet)                                                         | Status |
+| ------------------------- | ----------- | -------------------------------------------------------------------------- | ------ |
+| `create_spend_pod`        | pod_factory | `2uRUDPGLSEb...SSJi6F`                                                     | ✓ Done |
+| `record_receipt`          | pod_factory | `4n2snHrvTSv...FdBGw`                                                      | ✓ Done |
+| `settle_epoch`            | settlement  | `5SiWbxXFxjf...dfKd`                                                       | ✓ Done |
+| `delegate_pod` (MagicBlock) | pod_factory → DELeGG | `4K73yk4Ezkc...mt7FE`                                          | ✓ Done |
+
+---
+
 ## Remaining Blockers
 
-| Item                          | Status   | Notes |
-| ----------------------------- | -------- | ----- |
-| `create_spend_pod` on devnet  | ✓ Done   | Signature captured |
-| `record_receipt` on devnet    | Pending  | Requires pod to exist (now done) |
-| `delegate_pod` (MagicBlock)   | Pending  | Requires MagicBlock delegation program on devnet |
-| CPI from settlement → pod_factory | Pending | Full cross-program integration test |
-| Ephemeral rollup round-trip   | Pending  | Requires active MagicBlock validator |
+| Item                              | Status   | Notes |
+| --------------------------------- | -------- | ----- |
+| `create_spend_pod` on devnet      | ✓ Done   | Signature: `2uRUDPGLSEb...SSJi6F` |
+| `record_receipt` on devnet        | ✓ Done   | Signature: `4n2snHrvTSv...FdBGw` |
+| `settle_epoch` on devnet          | ✓ Done   | Signature: `5SiWbxXFxjf...dfKd` |
+| `delegate_pod` (MagicBlock DELeGG) | ✓ Done  | Signature: `4K73yk4Ezkc...mt7FE` |
+| Ephemeral rollup state mutations  | Pending  | Requires active validator session (beyond devnet baseline) |
+| CPI from settlement → pod_factory | Pending  | Full cross-program integration test |
 
-The core on-chain programs are deployed and functional. The `create_spend_pod` instruction
-executes successfully with policy constraints enforced on-chain.
+All four primary on-chain instructions now execute successfully on devnet.

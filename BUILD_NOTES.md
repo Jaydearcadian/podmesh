@@ -256,25 +256,23 @@ Both programs are now deployed to **Solana devnet** and confirmed executable.
 | pod_factory | `FXMgSbYBh6fQFCPQ7My5CAKW8sWgUTHQwo7gqLykp4fm` | ✓ Live   |
 | settlement  | `A9LFQfSS55CfCzNHYx7UGZpaWTvPaT19RWRvykhpohnc` | ✓ Live   |
 
-### E2E Test Result — create_spend_pod
+### E2E Test Results — All Instructions (2025-04-26)
 
-Script: `scripts/create-spend-pod.ts`
+| Script | Instruction | Signature |
+|--------|-------------|---------- |
+| `scripts/create-spend-pod.ts` | `create_spend_pod` | `2uRUDPGLSEbX5vnqveZLH4h9CggaPFrT6kkTjYgGzaepchL3StPp8hYsHhEX2D3tykgJceTQoyjLdCBYTNSSJi6F` |
+| `scripts/record-receipt.ts` | `record_receipt` | `4n2snHrvTSvSLCkv7M3RCU5fFZRTRfQYEPuiQp1PLSRRTGENYaCpJjfZdQQLc1fLQ1RBudWtKebMJgowB1FdBGw` |
+| `scripts/settle-epoch.ts` | `settle_epoch` | `5SiWbxXFxjfTVyfSMVAzwchMz43QHbS4JbQzcFQUnJwkfzYbthg3M377r3etq1xtg3ggNfkq3MHTjsWqfKvLdfKd` |
+| `scripts/delegate-pod.ts` | `delegate_pod` (MagicBlock CPI) | `4K73yk4EzkcBF1rHCsGZ3otDAMLU8RWwirKMTu4bEq9sxynLt7WpLPbjNVwGAkJmq2QUpWHov2cKsoHyt2mmt7FE` |
 
-```
-Owner:     2RiFddW6a5yvkX4CKDzG3RqY1AReQuaHgASrd8YBxkDZ
-Pod PDA:   GFdguT4bsdFfpixVpqwH6qNokYRGY21WsidQe7bFvYNL
-Signature: 2uRUDPGLSEbX5vnqveZLH4h9CggaPFrT6kkTjYgGzaepchL3StPp8hYsHhEX2D3tykgJceTQoyjLdCBYTNSSJi6F
-Network:   devnet
-```
+All four instructions confirmed on devnet. Pod PDA: `GFdguT4bsdFfpixVpqwH6qNokYRGY21WsidQe7bFvYNL`
 
 Explorer:
-- [Transaction](https://explorer.solana.com/tx/2uRUDPGLSEbX5vnqveZLH4h9CggaPFrT6kkTjYgGzaepchL3StPp8hYsHhEX2D3tykgJceTQoyjLdCBYTNSSJi6F?cluster=devnet)
+- [create_spend_pod](https://explorer.solana.com/tx/2uRUDPGLSEbX5vnqveZLH4h9CggaPFrT6kkTjYgGzaepchL3StPp8hYsHhEX2D3tykgJceTQoyjLdCBYTNSSJi6F?cluster=devnet)
+- [record_receipt](https://explorer.solana.com/tx/4n2snHrvTSvSLCkv7M3RCU5fFZRTRfQYEPuiQp1PLSRRTGENYaCpJjfZdQQLc1fLQ1RBudWtKebMJgowB1FdBGw?cluster=devnet)
+- [settle_epoch](https://explorer.solana.com/tx/5SiWbxXFxjfTVyfSMVAzwchMz43QHbS4JbQzcFQUnJwkfzYbthg3M377r3etq1xtg3ggNfkq3MHTjsWqfKvLdfKd?cluster=devnet)
+- [delegate_pod](https://explorer.solana.com/tx/4K73yk4EzkcBF1rHCsGZ3otDAMLU8RWwirKMTu4bEq9sxynLt7WpLPbjNVwGAkJmq2QUpWHov2cKsoHyt2mmt7FE?cluster=devnet)
 - [Pod PDA](https://explorer.solana.com/address/GFdguT4bsdFfpixVpqwH6qNokYRGY21WsidQe7bFvYNL?cluster=devnet)
-
-Run the E2E test:
-```bash
-npx tsx scripts/create-spend-pod.ts
-```
 
 ### Anchor ESM/CJS Import Note
 
