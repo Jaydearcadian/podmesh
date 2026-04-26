@@ -1,0 +1,5 @@
+[toolchain]
+# Use the Solana SBPF toolchain (Rust 1.89) which supports edition2024 crates
+# required by anchor-lang 0.32.1 -> proc-macro-crate 3.3.0 -> indexmap 2.14 -> hashbrown 0.17
+# This toolchain is pre-installed by the solana-install at ~/.rustup/toolchains/1.89.0-sbpf-solana-v1.52
+channel = "1.89.0-sbpf-solana-v1.52"

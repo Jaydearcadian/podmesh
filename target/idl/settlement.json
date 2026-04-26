@@ -1,0 +1,213 @@
+{
+  "address": "A9LFQfSS55CfCzNHYx7UGZpaWTvPaT19RWRvykhpohnc",
+  "metadata": {
+    "name": "settlement",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "PodMesh epoch settlement commitment program"
+  },
+  "instructions": [
+    {
+      "name": "settle_epoch",
+      "discriminator": [
+        148,
+        223,
+        178,
+        38,
+        201,
+        158,
+        167,
+        13
+      ],
+      "accounts": [
+        {
+          "name": "epoch_settlement",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "epoch"
+              }
+            ]
+          }
+        },
+        {
+          "name": "crank_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "epoch",
+          "type": "u64"
+        },
+        {
+          "name": "merkle_root",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "total_volume_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "receipt_count",
+          "type": "u64"
+        },
+        {
+          "name": "total_fees_lamports",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "EpochSettlement",
+      "discriminator": [
+        91,
+        152,
+        162,
+        159,
+        136,
+        60,
+        197,
+        156
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "EpochSettled",
+      "discriminator": [
+        32,
+        219,
+        45,
+        156,
+        250,
+        115,
+        190,
+        255
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "AlreadySettled",
+      "msg": "Epoch is already settled"
+    }
+  ],
+  "types": [
+    {
+      "name": "EpochSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "merkle_root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "total_volume_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "receipt_count",
+            "type": "u64"
+          },
+          {
+            "name": "total_fees_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "crank_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EpochSettlement",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "merkle_root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "total_volume_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "receipt_count",
+            "type": "u64"
+          },
+          {
+            "name": "total_fees_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "crank_reward_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "treasury_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "settled",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}

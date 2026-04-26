@@ -1,0 +1,91 @@
+@import url("https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 42 28% 96%;
+  --foreground: 210 28% 10%;
+  --card: 42 32% 98%;
+  --card-foreground: 210 28% 10%;
+  --popover: 42 32% 98%;
+  --popover-foreground: 210 28% 10%;
+  --primary: 179 88% 24%;
+  --primary-foreground: 180 100% 98%;
+  --secondary: 42 22% 90%;
+  --secondary-foreground: 210 28% 14%;
+  --muted: 42 20% 91%;
+  --muted-foreground: 212 10% 42%;
+  --accent: 178 35% 88%;
+  --accent-foreground: 179 88% 20%;
+  --destructive: 348 72% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 42 14% 82%;
+  --input: 42 14% 72%;
+  --ring: 179 88% 24%;
+  --chart-1: 179 88% 24%;
+  --chart-2: 207 70% 42%;
+  --chart-3: 34 88% 48%;
+  --chart-4: 106 45% 35%;
+  --chart-5: 320 50% 48%;
+  --radius: 0.85rem;
+  --font-sans: "Satoshi", "Inter", sans-serif;
+}
+
+.dark {
+  --background: 210 24% 7%;
+  --foreground: 42 16% 88%;
+  --card: 210 22% 10%;
+  --card-foreground: 42 16% 88%;
+  --popover: 210 22% 10%;
+  --popover-foreground: 42 16% 88%;
+  --primary: 181 58% 55%;
+  --primary-foreground: 210 24% 7%;
+  --secondary: 210 18% 16%;
+  --secondary-foreground: 42 16% 88%;
+  --muted: 210 18% 15%;
+  --muted-foreground: 42 8% 62%;
+  --accent: 180 25% 18%;
+  --accent-foreground: 181 58% 65%;
+  --destructive: 348 70% 58%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 210 15% 20%;
+  --input: 210 15% 28%;
+  --ring: 181 58% 55%;
+  --chart-1: 181 58% 55%;
+  --chart-2: 207 70% 62%;
+  --chart-3: 34 88% 58%;
+  --chart-4: 106 45% 55%;
+  --chart-5: 320 50% 64%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    min-height: 100dvh;
+  }
+
+  button,
+  a,
+  input {
+    @apply transition-colors;
+  }
+}
+
+@layer utilities {
+  .bg-mesh {
+    background:
+      radial-gradient(circle at 10% 10%, hsl(var(--primary) / 0.12), transparent 32rem),
+      radial-gradient(circle at 88% 0%, hsl(var(--chart-3) / 0.10), transparent 28rem),
+      hsl(var(--background));
+  }
+}

@@ -1,0 +1,527 @@
+{
+  "address": "FXMgSbYBh6fQFCPQ7My5CAKW8sWgUTHQwo7gqLykp4fm",
+  "metadata": {
+    "name": "pod_factory",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "PodMesh policy-bound Spend Pod program with MagicBlock delegation hooks"
+  },
+  "instructions": [
+    {
+      "name": "commit_and_undelegate_pod",
+      "discriminator": [
+        124,
+        186,
+        69,
+        223,
+        181,
+        126,
+        126,
+        204
+      ],
+      "accounts": [
+        {
+          "name": "pod",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "magic_context"
+        },
+        {
+          "name": "magic_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "commit_pod",
+      "discriminator": [
+        202,
+        135,
+        141,
+        97,
+        118,
+        49,
+        152,
+        136
+      ],
+      "accounts": [
+        {
+          "name": "pod",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "magic_context"
+        },
+        {
+          "name": "magic_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_spend_pod",
+      "discriminator": [
+        246,
+        178,
+        121,
+        12,
+        74,
+        252,
+        205,
+        251
+      ],
+      "accounts": [
+        {
+          "name": "pod",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "max_per_tx_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "max_per_epoch_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "allowed_category_hashes",
+          "type": {
+            "vec": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        },
+        {
+          "name": "expiry_ts",
+          "type": "i64"
+        },
+        {
+          "name": "slippage_bps",
+          "type": "u16"
+        },
+        {
+          "name": "require_delivery_oracle",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "delegate_pod",
+      "docs": [
+        "Delegate the Pod PDA to the MagicBlock ephemeral rollup via the delegation program.",
+        "Requires buffer, delegation_record, and delegation_metadata accounts derived from the PDA."
+      ],
+      "discriminator": [
+        240,
+        157,
+        177,
+        91,
+        82,
+        158,
+        87,
+        241
+      ],
+      "accounts": [
+        {
+          "name": "pod",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "owner_program"
+        },
+        {
+          "name": "buffer",
+          "writable": true
+        },
+        {
+          "name": "delegation_record",
+          "writable": true
+        },
+        {
+          "name": "delegation_metadata",
+          "writable": true
+        },
+        {
+          "name": "delegation_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "validator",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "record_receipt",
+      "discriminator": [
+        123,
+        1,
+        227,
+        189,
+        86,
+        215,
+        19,
+        253
+      ],
+      "accounts": [
+        {
+          "name": "pod",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "amount_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "category_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "slippage_bps",
+          "type": "u16"
+        },
+        {
+          "name": "oracle_attested",
+          "type": "bool"
+        },
+        {
+          "name": "epoch",
+          "type": "u64"
+        },
+        {
+          "name": "receipt_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "SpendPod",
+      "discriminator": [
+        20,
+        86,
+        161,
+        145,
+        107,
+        226,
+        135,
+        166
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "ReceiptRecorded",
+      "discriminator": [
+        254,
+        226,
+        37,
+        71,
+        33,
+        0,
+        78,
+        15
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidPolicy",
+      "msg": "Invalid Pod policy"
+    },
+    {
+      "code": 6001,
+      "name": "TooManyCategories",
+      "msg": "Too many category hashes"
+    },
+    {
+      "code": 6002,
+      "name": "Unauthorized",
+      "msg": "Unauthorized Pod owner"
+    },
+    {
+      "code": 6003,
+      "name": "Expired",
+      "msg": "Pod expired"
+    },
+    {
+      "code": 6004,
+      "name": "MaxPerTxExceeded",
+      "msg": "Amount exceeds max_per_tx"
+    },
+    {
+      "code": 6005,
+      "name": "MaxPerEpochExceeded",
+      "msg": "Epoch spend cap exceeded"
+    },
+    {
+      "code": 6006,
+      "name": "CategoryNotAllowed",
+      "msg": "Category is not allowed"
+    },
+    {
+      "code": 6007,
+      "name": "SlippageExceeded",
+      "msg": "Slippage exceeds policy"
+    },
+    {
+      "code": 6008,
+      "name": "OracleRequired",
+      "msg": "Delivery oracle attestation required"
+    },
+    {
+      "code": 6009,
+      "name": "DelegationFailed",
+      "msg": "Delegation CPI failed"
+    }
+  ],
+  "types": [
+    {
+      "name": "ReceiptRecorded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pod",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "category_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "receipt_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "sequence",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SpendPod",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "max_per_tx_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "max_per_epoch_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "epoch_spent_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "allowed_category_hashes",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "expiry_ts",
+            "type": "i64"
+          },
+          {
+            "name": "slippage_bps",
+            "type": "u16"
+          },
+          {
+            "name": "require_delivery_oracle",
+            "type": "bool"
+          },
+          {
+            "name": "receipt_count",
+            "type": "u64"
+          },
+          {
+            "name": "last_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "policy_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

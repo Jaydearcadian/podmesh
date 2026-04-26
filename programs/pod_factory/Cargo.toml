@@ -1,0 +1,21 @@
+[package]
+name = "pod_factory"
+version = "0.1.0"
+description = "PodMesh policy-bound Spend Pod program with MagicBlock delegation hooks"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "pod_factory"
+
+[features]
+no-entrypoint = []
+no-idl = []
+cpi = ["no-entrypoint"]
+idl-build = ["anchor-lang/idl-build"]
+default = []
+
+[dependencies]
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
+ephemeral-rollups-sdk = "=0.2.5"
+solana-program = "=2.3.0"
