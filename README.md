@@ -1,6 +1,6 @@
 # PodMesh
 
-**MagicBlock Hackathon submission** — Policy-bound autonomous payments on Solana with MagicBlock Ephemeral Rollups.
+Policy-bound autonomous payments on Solana, powered by MagicBlock Ephemeral Rollups.
 
 > Developer: [jaydearcadian](https://github.com/jaydearcadian)
 
@@ -8,7 +8,7 @@
 
 ## What is PodMesh?
 
-PodMesh is a protocol for giving autonomous agents real spending power without giving them unrestricted wallet access. A user creates a **Pod** — a policy-enforced spending account anchored on Solana — and delegates it to an agent. The agent can execute payments through MagicBlock's Ephemeral Rollup (ER) at low latency, but every payment is validated against the Pod's immutable policy before it is signed. Epoch receipts are committed back to Solana by a crank, producing a permanent, auditable trail.
+PodMesh is a protocol for giving autonomous agents real spending power without giving them unrestricted wallet access. A user creates a **Pod** (a policy-enforced spending account anchored on Solana) and delegates it to an agent. The agent can execute payments through MagicBlock's Ephemeral Rollup (ER) at low latency, but every payment is validated against the Pod's immutable policy before it is signed. Epoch receipts are committed back to Solana by a crank, producing a permanent, auditable trail.
 
 ---
 
@@ -16,26 +16,14 @@ PodMesh is a protocol for giving autonomous agents real spending power without g
 
 Autonomous agents (AI, bots, trading programs) need to spend money on behalf of users, but existing approaches are unsafe:
 
-- **Full wallet access** — the agent can drain everything.
-- **Manual approval** — defeats the purpose of autonomy.
-- **Custodial escrow** — introduces counterparty risk and latency.
+- **Full wallet access**: the agent can drain everything.
+- **Manual approval**: defeats the purpose of autonomy.
+- **Custodial escrow**: introduces counterparty risk and latency.
 
 PodMesh solves this with an on-chain policy object (the Pod) that the agent can never bypass. Spend limits, allowed payment categories, slippage caps, and expiry are set at creation time and cannot be changed after the fact. The agent's execution path goes through the MagicBlock ER for speed, but settlement and policy state are ultimately committed back to Solana base layer.
 
 ---
 
-## MagicBlock Hackathon Context
-
-PodMesh was built for the **MagicBlock hackathon**. The integration targets MagicBlock's Ephemeral Rollups infrastructure, specifically:
-
-- `@magicblock-labs/ephemeral-rollups-sdk` (JS `0.11.2`, Rust `0.2.5`)
-- The MagicBlock devnet router: `https://devnet-router.magicblock.app`
-- The MagicBlock delegation program: `DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh`
-- The MagicBlock devnet ER validator: `MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57`
-
-Both Anchor programs are deployed and live on Solana devnet. All four core instructions have been executed on devnet and confirmed with explorer links.
-
----
 
 ## Architecture
 
@@ -69,7 +57,7 @@ Both Anchor programs are deployed and live on Solana devnet. All four core instr
 | **Pod Factory** (`pod_factory`) | Creates Pod PDAs with immutable spend policy; records receipts; delegates Pod to MagicBlock ER via CPI to DELeGG |
 | **Settlement** (`settlement`) | Accepts epoch Merkle roots from a crank; stores volume, receipt count, fee split (20% crank / 80% treasury) |
 | **MagicBlock ER** | Holds delegated Pod state; agents mutate receipts and counters at rollup speed; crank commits state back to Solana |
-| **Browser Frontend** | Multi-page React app for Pod creation, agent execution, receipt log, settlement, architecture overview, and hackathon proof page |
+| **Browser Frontend** | Multi-page React app for Pod creation, agent execution, receipt log, settlement, architecture overview, and devnet proof page |
 | **Scripts** | TypeScript test scripts that exercise every on-chain instruction end-to-end against devnet |
 
 ---
@@ -174,7 +162,7 @@ Emits: `EpochSettled { epoch, merkle_root, total_volume_lamports, receipt_count,
 
 1. `delegate_pod` is called on the base layer. This CPIs into `DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh`, which marks the Pod PDA as delegated and sets up the buffer, delegation record, and metadata accounts.
 2. The MagicBlock ER validator (`MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57`) takes custody of the account.
-3. An agent sends transactions to the MagicBlock devnet router (`https://devnet-router.magicblock.app`). These are processed at ER speed — sub-second finality, no Solana block-time constraint.
+3. An agent sends transactions to the MagicBlock devnet router (`https://devnet-router.magicblock.app`). These are processed at ER speed: sub-second finality, no Solana block-time constraint.
 4. At configurable intervals (3 seconds in the MVP config), the crank commits ER state back to Solana base layer via `commit_pod` or `commit_and_undelegate_pod`.
 
 ### What ER Enables for Agents
@@ -206,7 +194,7 @@ const erConnection = new ConnectionMagicRouter(
 );
 ```
 
-### SDK Usage (Rust — `ephemeral-rollups-sdk = "0.2.5"`)
+### SDK Usage (Rust, `ephemeral-rollups-sdk = "0.2.5"`)
 
 ```rust
 use ephemeral_rollups_sdk::cpi::{delegate_account, DelegateAccounts, DelegateConfig};
@@ -240,20 +228,20 @@ Multi-page React app built with Vite, Tailwind CSS, shadcn/ui, and `wouter` for 
 | Route | Description |
 |-------|-------------|
 | `/` | Overview and navigation |
-| `/pod` | Create a Pod — policy form, devnet wallet connection, Pod PDA derivation |
-| `/agent` | Agent execution — BillPay and OTC/RFQ intents routed through Magic Router |
-| `/receipts` | Receipts log — per-receipt approval status, Devnet Explorer links |
-| `/settlement` | Epoch settlement — settle via Magic Router, view on-chain settlement state |
+| `/pod` | Create a Pod: policy form, devnet wallet connection, Pod PDA derivation |
+| `/agent` | Agent execution: BillPay and OTC/RFQ intents routed through Magic Router |
+| `/receipts` | Receipts log: per-receipt approval status, Devnet Explorer links |
+| `/settlement` | Epoch settlement: settle via Magic Router, view on-chain settlement state |
 | `/architecture` | Architecture diagram and tech stack |
-| `/proof` | Hackathon submission evidence — live checklist of all confirmed devnet transactions |
+| `/demo` | Demo, live proof page: checklist of all confirmed devnet transactions, commerce flow, marketplace walkthrough |
 
 ### Transaction Routing Labels
 
 Every action in the frontend carries one of three badges to be transparent about what is simulated vs. live:
 
-- **Solana Devnet** — real on-chain transaction confirmed on Solana devnet
-- **MagicBlock ER** — routed via `devnet-router.magicblock.app`
-- **Pending program deploy** — requires `anchor deploy` (programs are deployed; badge used for UI states that need a running session)
+- **Solana Devnet**: real on-chain transaction confirmed on Solana devnet
+- **MagicBlock ER**: routed via `devnet-router.magicblock.app`
+- **Pending program deploy**: requires `anchor deploy` (programs are deployed; badge used for UI states that need a running session)
 
 ### Running the Frontend
 
@@ -363,7 +351,7 @@ npx tsx scripts/podmesh-crank.ts
 
 ---
 
-## Devnet E2E Flow — Tested and Confirmed
+## Devnet E2E Flow: Tested and Confirmed
 
 All five steps below executed against Solana devnet and confirmed with Solana Explorer links.
 
@@ -373,7 +361,7 @@ All five steps below executed against Solana devnet and confirmed with Solana Ex
 
 ---
 
-### Step 1 — `create_spend_pod`
+### Step 1: `create_spend_pod`
 
 Policy created with: 0.05 SOL per-tx cap, 1.0 SOL per-epoch cap, 3 allowed category hashes (`grocery:general`, `food_delivery:restaurant`, `grocery:pharmacy`), 150 bps slippage, 90-day expiry.
 
@@ -401,7 +389,7 @@ On-chain state after creation:
 
 ---
 
-### Step 2 — Agent payment transfer (0.001 SOL)
+### Step 2: Agent payment transfer (0.001 SOL)
 
 The agent executes a `SystemProgram.transfer` within policy limits (0.001 SOL < 0.05 SOL per-tx cap).
 
@@ -417,7 +405,7 @@ The agent executes a `SystemProgram.transfer` within policy limits (0.001 SOL < 
 
 ---
 
-### Step 3 — `record_receipt`
+### Step 3: `record_receipt`
 
 Anchors the payment on-chain. Amount (1,000,000 lamports) passes all policy checks: within per-tx cap, within per-epoch cap, category hash matches, slippage within limit.
 
@@ -439,7 +427,7 @@ Event emitted: `ReceiptRecorded { pod, owner, amount_lamports: 1000000, epoch: 1
 
 ---
 
-### Step 4 — `settle_epoch`
+### Step 4: `settle_epoch`
 
 Epoch 1060 settled. Epoch Settlement PDA: `7ucH3LPdx2PfS3LUpKSoFYVWuxYK54LikxSm7qCrhDk9`  
 (seeds: `[b"epoch", 1060u64.to_le_bytes()]`)
@@ -468,7 +456,7 @@ Event emitted: `EpochSettled { epoch: 1060, total_volume_lamports: 1000000, rece
 
 ---
 
-### Step 5 — `delegate_pod` (MagicBlock CPI)
+### Step 5: `delegate_pod` (MagicBlock CPI)
 
 Pod PDA delegated to the MagicBlock ER. Delegation accounts created:
 
@@ -504,12 +492,35 @@ Pod PDA is now delegated with a 3-second commit frequency. The delegation CPI (`
 
 The intended production flow for an agent commerce marketplace:
 
-1. **User creates a Pod** — sets spend policy (category whitelist, per-tx cap, per-epoch cap, slippage, expiry). Pod PDA is created on Solana base layer.
-2. **User delegates Pod to ER** — calls `delegate_pod`. Pod state is handed to the MagicBlock ER validator.
-3. **Agent executes payments** — agent sends payment intents to the Magic Router. The ER validates against Pod policy at sub-second speed. Receipts accumulate in ER state.
-4. **Crank commits** — every 3 seconds (configurable), a crank commits ER state back to Solana, producing an on-chain receipt trail.
-5. **Epoch settlement** — at epoch boundaries, the crank calls `settle_epoch` with a Merkle root of all receipts. The settlement program records volume, receipt count, and distributes fees.
-6. **User undelegates** — when done, `commit_and_undelegate_pod` returns Pod custody to Solana base layer.
+1. **User creates a Pod**: sets spend policy (category whitelist, per-tx cap, per-epoch cap, slippage, expiry). Pod PDA is created on Solana base layer.
+2. **User delegates Pod to ER**: calls `delegate_pod`. Pod state is handed to the MagicBlock ER validator.
+3. **Agent executes payments**: the agent sends payment intents to the Magic Router. The ER validates against Pod policy at sub-second speed. Receipts accumulate in ER state.
+4. **Crank commits**: every 3 seconds (configurable), a crank commits ER state back to Solana, producing an on-chain receipt trail.
+5. **Epoch settlement**: at epoch boundaries, the crank calls `settle_epoch` with a Merkle root of all receipts. The settlement program records volume, receipt count, and distributes fees.
+6. **User undelegates**: when done, `commit_and_undelegate_pod` returns Pod custody to Solana base layer.
+
+---
+
+## How Users Use Settlement
+
+After running agent intents on the Agent tab, approved receipts accumulate in the local receipt mirror. Settlement batches these into a single on-chain proof.
+
+### Settlement workflow
+
+1. **Accumulate receipts** - run payment intents from the Agent tab. Each approved intent creates a receipt leaf with a receipt hash and Merkle leaf.
+2. **Open the Settlement tab** - the tab shows receipt count, approved count, total volume, and the estimated fee (0.1% of volume).
+3. **Click "Settle epoch"** - this submits a `commit` instruction via the MagicBlock router. A memo transaction anchors the Merkle root of all receipt leaves to Solana devnet.
+4. **View the result** - a settlement event appears in the Event Log with a Solana Explorer link. The EpochSettlement PDA (seeds: `[b"epoch", epoch.to_le_bytes()]`) records:
+   - Total volume in lamports
+   - Receipt count
+   - Total fees
+   - Crank reward (20% of fees)
+   - Treasury allocation (80% of fees)
+5. **Explorer proof** - click the Explorer link in the event log to verify the settlement memo transaction on Solana devnet.
+
+### On-chain settlement program
+
+The `settlement` program (`A9LFQfSS55CfCzNHYx7UGZpaWTvPaT19RWRvykhpohnc`) accepts a `settle_epoch` instruction from a crank. It creates or updates an `EpochSettlement` PDA with the Merkle root of all receipts for that epoch, distributes fees, and emits an `EpochSettled` event. The confirmed devnet settlement transaction is in the E2E flow section below.
 
 ---
 
@@ -522,7 +533,7 @@ These are honest constraints of the MVP, not implementation defects:
 | Live ER state mutations via Magic Router | Pending | Requires an active MagicBlock ER validator session against the deployed programs. The delegation CPI completes on devnet, but real-time ER execution depends on validator liveness. |
 | Cross-program: `settlement` → `pod_factory` CPI | Pending | Full cross-program integration (settlement triggering pod state updates) is designed but not tested end-to-end. |
 | `commit_and_undelegate` full round-trip | Pending | Delegation succeeds; commit-and-undelegate requires an active ER session. |
-| Oracle integration | Not implemented | `require_delivery_oracle = false` was used in all devnet tests. The flag exists in the Pod state; oracle infrastructure is out of scope for the hackathon. |
+| Oracle integration | Not implemented | `require_delivery_oracle = false` was used in all devnet tests. The flag exists in the Pod state; oracle infrastructure is not included in the current MVP. |
 | Merkle root construction from live receipts | Partial | The `podmesh-crank.ts` script accepts a `MERKLE_ROOT` env var. Automated Merkle tree construction from receipt events is not included. |
 
 ---

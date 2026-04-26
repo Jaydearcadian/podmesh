@@ -1,4 +1,4 @@
-# PodMesh — Build Notes (MagicBlock Hackathon Submission)
+# PodMesh - Build Notes
 
 ## Summary
 
@@ -45,7 +45,7 @@ anchor-attribute-constant 0.32.1
 `cargo 1.84.0` in the Solana platform-tools. Cargo 1.84 does not support the
 `edition2024` feature gate in dependency `Cargo.toml` manifests.
 
-**Resolution — registry patch (applied to this environment):**
+**Resolution: registry patch (applied to this environment):**
 
 The following crates in the platform-tools registry at
 `~/.cargo/registry/src/index.crates.io-6f17d22bba15001f/` were patched:
@@ -161,7 +161,7 @@ idl-build = ["anchor-lang/idl-build"]
 
 ## Frontend Improvements
 
-### New page: `/proof` — Live Proof / Hackathon Submission Evidence
+### New page: `/proof` - Live Proof / Devnet Evidence
 
 An 8-item checklist with live status for:
 - MagicBlock router connectivity
@@ -176,9 +176,9 @@ An 8-item checklist with live status for:
 ### Transaction routing labels (RouteBadge)
 
 Every action and event now shows one of three badges:
-- 🔵 **Solana Devnet** — real on-chain tx confirmed on Solana devnet
-- 🟣 **MagicBlock ER** — routed via devnet-router.magicblock.app
-- 🟡 **Pending program deploy** — requires `solana program deploy` first
+- 🔵 **Solana Devnet**: real on-chain tx confirmed on Solana devnet
+- 🟣 **MagicBlock ER**: routed via devnet-router.magicblock.app
+- 🟡 **Pending program deploy**: requires `solana program deploy` first
 
 ### Explorer links
 
@@ -223,7 +223,7 @@ are ready in `target/deploy/`.
    Anchor CPI once the program is deployed. The IDL is generated at
    `target/idl/pod_factory.json`.
 
-4. **Persist the registry patches** across `solana-install update` — the edition2024
+4. **Persist the registry patches** across `solana-install update`: the edition2024
    workaround applied above will be lost if the platform-tools are re-installed.
    The real fix is upgrading to Solana CLI ≥ 2.4.x.
 
@@ -256,7 +256,7 @@ Both programs are now deployed to **Solana devnet** and confirmed executable.
 | pod_factory | `FXMgSbYBh6fQFCPQ7My5CAKW8sWgUTHQwo7gqLykp4fm` | ✓ Live   |
 | settlement  | `A9LFQfSS55CfCzNHYx7UGZpaWTvPaT19RWRvykhpohnc` | ✓ Live   |
 
-### E2E Test Results — All Instructions (2025-04-26)
+### E2E Test Results: All Instructions (2025-04-26)
 
 | Script | Instruction | Signature |
 |--------|-------------|---------- |
