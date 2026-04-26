@@ -244,3 +244,43 @@ anchor build    # ✓ pod_factory.so + settlement.so
 # Start dev server
 npm run dev
 ```
+
+---
+
+## Devnet Deployment (Completed)
+
+Both programs are now deployed to **Solana devnet** and confirmed executable.
+
+| Program     | Program ID                                    | Status   |
+| ----------- | --------------------------------------------- | -------- |
+| pod_factory | `FXMgSbYBh6fQFCPQ7My5CAKW8sWgUTHQwo7gqLykp4fm` | ✓ Live   |
+| settlement  | `A9LFQfSS55CfCzNHYx7UGZpaWTvPaT19RWRvykhpohnc` | ✓ Live   |
+
+### E2E Test Result — create_spend_pod
+
+Script: `scripts/create-spend-pod.ts`
+
+```
+Owner:     2RiFddW6a5yvkX4CKDzG3RqY1AReQuaHgASrd8YBxkDZ
+Pod PDA:   GFdguT4bsdFfpixVpqwH6qNokYRGY21WsidQe7bFvYNL
+Signature: 2uRUDPGLSEbX5vnqveZLH4h9CggaPFrT6kkTjYgGzaepchL3StPp8hYsHhEX2D3tykgJceTQoyjLdCBYTNSSJi6F
+Network:   devnet
+```
+
+Explorer:
+- [Transaction](https://explorer.solana.com/tx/2uRUDPGLSEbX5vnqveZLH4h9CggaPFrT6kkTjYgGzaepchL3StPp8hYsHhEX2D3tykgJceTQoyjLdCBYTNSSJi6F?cluster=devnet)
+- [Pod PDA](https://explorer.solana.com/address/GFdguT4bsdFfpixVpqwH6qNokYRGY21WsidQe7bFvYNL?cluster=devnet)
+
+Run the E2E test:
+```bash
+npx tsx scripts/create-spend-pod.ts
+```
+
+### Anchor ESM/CJS Import Note
+
+`@coral-xyz/anchor` is a CommonJS module. In this ESM project (`"type": "module"`), use:
+```typescript
+import anchor from "@coral-xyz/anchor";
+const { BN, AnchorProvider, Program, Wallet, setProvider } = anchor;
+```
+Named imports (`import { BN } from "@coral-xyz/anchor"`) fail with tsx.

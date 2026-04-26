@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link, Route, Router, Switch, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -55,19 +55,84 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import NotFound from "@/pages/not-found";
 
+// ─── Solana Provider Types ──────────────────────────────────────────────────
+
+type SolanaProvider = {
+  isPhantom?: boolean;
+  isBackpack?: boolean;
+  isSolflare?: boolean;
+  publicKey?: PublicKey;
+  connect: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: PublicKey }>;
+  disconnect?: () => Promise<void>;
+  signAndSendTransaction?: (tx: Transaction) => Promise<{ signature: string }>;
+  signTransaction?: (tx: Transaction) => Promise<Transaction>;
+  providers?: SolanaProvider[];
+};
+
 declare global {
   interface Window {
-    solana?: {
-      isPhantom?: boolean;
-      publicKey?: PublicKey;
-      connect: () => Promise<{ publicKey: PublicKey }>;
-      signAndSendTransaction?: (tx: Transaction) => Promise<{ signature: string }>;
-      signTransaction?: (tx: Transaction) => Promise<Transaction>;
-    };
+    solana?: SolanaProvider;
+    phantom?: { solana?: SolanaProvider };
+    backpack?: { solana?: SolanaProvider };
+    solflare?: SolanaProvider;
   }
+}
+
+// ─── Provider Detection ──────────────────────────────────────────────────────
+
+export type ProviderName = "phantom" | "backpack" | "solflare" | "auto";
+
+function getAllProviders(): Record<string, SolanaProvider> {
+  const found: Record<string, SolanaProvider> = {};
+  if (window.phantom?.solana) found.phantom = window.phantom.solana;
+  if (window.backpack?.solana) found.backpack = window.backpack.solana;
+  if (window.solflare) found.solflare = window.solflare;
+  // Multi-adapter injection: window.solana.providers[]
+  if (window.solana?.providers?.length) {
+    for (const p of window.solana.providers) {
+      if (p.isPhantom && !found.phantom) found.phantom = p;
+      else if (p.isBackpack && !found.backpack) found.backpack = p;
+      else if (p.isSolflare && !found.solflare) found.solflare = p;
+    }
+  }
+  // Fall back to bare window.solana
+  if (window.solana && !found.phantom && !found.backpack && !found.solflare) {
+    if (window.solana.isPhantom) found.phantom = window.solana;
+    else if (window.solana.isBackpack) found.backpack = window.solana;
+    else if (window.solana.isSolflare) found.solflare = window.solana;
+    else found.auto = window.solana;
+  }
+  return found;
+}
+
+function pickProvider(preferred: ProviderName): SolanaProvider | null {
+  const all = getAllProviders();
+  if (preferred !== "auto" && all[preferred]) return all[preferred];
+  // Auto-pick order: phantom → backpack → solflare → auto
+  return all.phantom ?? all.backpack ?? all.solflare ?? all.auto ?? null;
+}
+
+function isInIframe(): boolean {
+  try { return window.self !== window.top; } catch { return true; }
+}
+
+function getTopLevelUrl(): string {
+  try {
+    if (!isInIframe()) return window.location.href;
+    // Try referrer, then fall back to hash-based URL construction
+    if (document.referrer) return document.referrer;
+  } catch { /* cross-origin */ }
+  return window.location.href;
+}
+
+function phantomUniversalLink(appUrl: string): string {
+  const encoded = encodeURIComponent(appUrl);
+  // Phantom universal link: opens the app URL inside Phantom's in-app browser
+  return `https://phantom.app/ul/browse/${encoded}?ref=${encoded}`;
 }
 
 const SOLANA_DEVNET = "https://api.devnet.solana.com";
@@ -261,7 +326,7 @@ function RouteBadge({ route }: { route?: TxRoute }) {
       className: "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300 border-violet-300 dark:border-violet-700",
     },
     "pending-deployment": {
-      label: "Pending program deploy",
+      label: "CPI testing pending",
       className: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-amber-300 dark:border-amber-700",
     },
   };
@@ -316,6 +381,11 @@ function usePodMeshState() {
     },
   ]);
   const [routerStatus, setRouterStatus] = useState<"idle" | "online" | "offline">("idle");
+  // Wallet picker state
+  const [walletPickerOpen, setWalletPickerOpen] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<ProviderName>("auto");
+  const providerRef = useRef<SolanaProvider | null>(null);
+
   const baseConnection = useMemo(() => new Connection(SOLANA_DEVNET, "confirmed"), []);
   const routerConnection = useMemo(
     () => new ConnectionMagicRouter(MAGIC_ROUTER_DEVNET, "confirmed"),
@@ -331,23 +401,53 @@ function usePodMeshState() {
   const addEvent = (event: Omit<ChainEvent, "id" | "at">) =>
     setEvents((prev) => [{ ...event, id: crypto.randomUUID(), at: now() }, ...prev].slice(0, 24));
 
-  async function connectWallet() {
-    if (!window.solana) {
+  async function connectWalletWith(preferred: ProviderName) {
+    setWalletPickerOpen(false);
+    const provider = pickProvider(preferred);
+    if (!provider) {
       toast({
-        title: "Wallet not found",
-        description: "Open this app in a browser with Phantom or Backpack installed.",
+        title: "No wallet detected",
+        description:
+          "No Solana wallet extension found. Open this URL in Phantom, Backpack, or a browser with a wallet extension.",
         variant: "destructive",
       });
       return;
     }
-    const res = await window.solana.connect();
-    setWallet(res.publicKey);
-    addEvent({
-      kind: "wallet",
-      title: "Wallet connected",
-      detail: res.publicKey.toBase58(),
-      route: "devnet",
-    });
+    try {
+      const res = await provider.connect();
+      providerRef.current = provider;
+      setSelectedProvider(preferred);
+      setWallet(res.publicKey);
+      addEvent({
+        kind: "wallet",
+        title: "Wallet connected",
+        detail: res.publicKey.toBase58(),
+        route: "devnet",
+      });
+    } catch (err) {
+      toast({
+        title: "Connection rejected",
+        description: err instanceof Error ? err.message : "User rejected wallet connection.",
+        variant: "destructive",
+      });
+    }
+  }
+
+  function connectWallet() {
+    // If no provider found at all, open the picker immediately with guidance
+    const all = getAllProviders();
+    if (Object.keys(all).length === 0) {
+      setWalletPickerOpen(true);
+      return;
+    }
+    // If exactly one provider, connect directly
+    const keys = Object.keys(all) as ProviderName[];
+    if (keys.length === 1) {
+      connectWalletWith(keys[0]);
+      return;
+    }
+    // Multiple providers — let the user pick
+    setWalletPickerOpen(true);
   }
 
   async function checkRouter() {
@@ -371,7 +471,8 @@ function usePodMeshState() {
   }
 
   async function sendViaWallet(tx: Transaction, route: "base" | "magic") {
-    if (!wallet || !window.solana) throw new Error("Connect wallet first");
+    const provider = providerRef.current ?? pickProvider(selectedProvider);
+    if (!wallet || !provider) throw new Error("Connect wallet first");
     tx.feePayer = wallet;
     const connection = route === "magic" ? routerConnection : baseConnection;
     const blockhash =
@@ -379,16 +480,16 @@ function usePodMeshState() {
         ? await routerConnection.getLatestBlockhashForTransaction(tx)
         : await baseConnection.getLatestBlockhash("confirmed");
     tx.recentBlockhash = blockhash.blockhash;
-    if (window.solana.signAndSendTransaction) {
-      const { signature } = await window.solana.signAndSendTransaction(tx);
+    if (provider.signAndSendTransaction) {
+      const { signature } = await provider.signAndSendTransaction(tx);
       await connection.confirmTransaction(
         { signature, blockhash: blockhash.blockhash, lastValidBlockHeight: blockhash.lastValidBlockHeight },
         "confirmed",
       );
       return signature;
     }
-    if (!window.solana.signTransaction) throw new Error("Wallet cannot sign transactions");
-    const signed = await window.solana.signTransaction(tx);
+    if (!provider.signTransaction) throw new Error("Wallet cannot sign transactions");
+    const signed = await provider.signTransaction(tx);
     const raw = signed.serialize();
     const signature = await connection.sendRawTransaction(raw, { skipPreflight: false });
     await connection.confirmTransaction(
@@ -400,7 +501,8 @@ function usePodMeshState() {
 
   /**
    * LIVE DEVNET: anchors pod policy as a memo tx on Solana devnet.
-   * Does NOT call the Pod Factory program (awaiting deployment).
+   * Programs are deployed on devnet (pod_factory: FXMgSbYBh6fQFCPQ7My5CAKW8sWgUTHQwo7gqLykp4fm).
+   * This UI path sends a memo tx; full PDA CPI is exercised via the CLI script.
    */
   async function createPodOnchain() {
     if (!wallet || !pod) return connectWallet();
@@ -416,7 +518,7 @@ function usePodMeshState() {
     addEvent({
       kind: "settle",
       title: "Pod policy memo anchored on Solana devnet",
-      detail: `PDA: ${pod.toBase58()} · memo tx (full CPI pending program deploy)`,
+      detail: `PDA: ${pod.toBase58()} · devnet memo tx (programs deployed — CPI test via scripts/create-spend-pod.ts)`,
       signature,
       route: "devnet",
     });
@@ -576,6 +678,10 @@ function usePodMeshState() {
     erIdentity,
     approvedVolume,
     connectWallet,
+    connectWalletWith,
+    walletPickerOpen,
+    setWalletPickerOpen,
+    selectedProvider,
     checkRouter,
     createPodOnchain,
     delegatePodLive,
@@ -586,6 +692,255 @@ function usePodMeshState() {
 }
 
 type PodMeshState = ReturnType<typeof usePodMeshState>;
+
+// ─── Iframe / Embed Warning Banner ────────────────────────────────────────────────────
+
+function IframeWarningBanner() {
+  const [dismissed, setDismissed] = useState(false);
+  const inFrame = isInIframe();
+  if (!inFrame || dismissed) return null;
+
+  const appUrl = window.location.href;
+
+  function openTopLevel() {
+    try { window.open(appUrl, "_blank", "noopener,noreferrer"); } catch { /* */ }
+  }
+
+  return (
+    <div
+      className="flex items-start gap-3 border-b border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm"
+      role="alert"
+    >
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-500" />
+      <div className="flex-1 space-y-1">
+        <p className="font-medium text-yellow-700 dark:text-yellow-300">
+          Embedded preview — wallet injection may be blocked
+        </p>
+        <p className="text-muted-foreground">
+          Browser extensions like Phantom cannot inject into embedded iframes or Perplexity previews.
+          For full wallet access, open this app directly in your browser or the Phantom in-app browser.
+        </p>
+        <div className="flex flex-wrap gap-2 pt-1">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1.5 text-xs"
+            onClick={openTopLevel}
+            data-testid="button-open-top-level"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Open in new tab
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1.5 text-xs"
+            onClick={() => navigator.clipboard?.writeText(appUrl)}
+            data-testid="button-copy-url"
+          >
+            Copy app URL
+          </Button>
+          <a
+            href={phantomUniversalLink(appUrl)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-accent"
+            data-testid="link-open-phantom"
+          >
+            <Globe className="h-3 w-3" />
+            Open in Phantom browser
+          </a>
+        </div>
+      </div>
+      <button
+        onClick={() => setDismissed(true)}
+        className="text-muted-foreground hover:text-foreground"
+        aria-label="Dismiss"
+        data-testid="button-dismiss-banner"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+// ─── Wallet Picker Modal ────────────────────────────────────────────────────────────────────
+
+type ProviderButtonDef = {
+  name: ProviderName;
+  label: string;
+  description: string;
+  color: string;
+  testId: string;
+};
+
+const PROVIDER_BUTTONS: ProviderButtonDef[] = [
+  {
+    name: "phantom",
+    label: "Phantom",
+    description: "window.phantom?.solana or window.solana (isPhantom)",
+    color: "text-purple-500",
+    testId: "button-wallet-phantom",
+  },
+  {
+    name: "backpack",
+    label: "Backpack",
+    description: "window.backpack?.solana",
+    color: "text-orange-500",
+    testId: "button-wallet-backpack",
+  },
+  {
+    name: "solflare",
+    label: "Solflare",
+    description: "window.solflare",
+    color: "text-amber-500",
+    testId: "button-wallet-solflare",
+  },
+  {
+    name: "auto",
+    label: "Detected wallet",
+    description: "Use whichever wallet is injected",
+    color: "text-green-500",
+    testId: "button-wallet-auto",
+  },
+];
+
+function WalletPickerModal({ state }: { state: PodMeshState }) {
+  const appUrl = window.location.href;
+  const detectedProviders = getAllProviders();
+  const hasAnyProvider = Object.keys(detectedProviders).length > 0;
+  const inFrame = isInIframe();
+
+  function openTopLevel() {
+    try { window.open(appUrl, "_blank", "noopener,noreferrer"); } catch { /* */ }
+  }
+
+  return (
+    <Dialog open={state.walletPickerOpen} onOpenChange={state.setWalletPickerOpen}>
+      <DialogContent className="max-w-md" data-testid="dialog-wallet-picker">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Wallet className="h-5 w-5" />
+            Connect Wallet
+          </DialogTitle>
+          <DialogDescription>
+            Select your Solana wallet to connect.
+          </DialogDescription>
+        </DialogHeader>
+
+        {inFrame && (
+          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-500" />
+              <div className="space-y-1">
+                <p className="font-medium text-yellow-700 dark:text-yellow-300">
+                  Embedded preview detected
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Wallet extensions cannot inject into iframes or Perplexity embedded previews.
+                  The Vercel/top-level URL works best. Open the app directly in your browser.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Provider buttons */}
+        <div className="space-y-2" data-testid="wallet-provider-list">
+          {PROVIDER_BUTTONS.map(({ name, label, description, color, testId }) => {
+            const available = name === "auto" ? hasAnyProvider : name in detectedProviders;
+            return (
+              <button
+                key={name}
+                data-testid={testId}
+                disabled={!available}
+                onClick={() => state.connectWalletWith(name)}
+                className={
+                  "flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors " +
+                  (available
+                    ? "cursor-pointer hover:bg-accent"
+                    : "cursor-not-allowed opacity-40")
+                }
+              >
+                <Wallet className={`h-6 w-6 ${color}`} />
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm">{label}</p>
+                  <p className="text-xs text-muted-foreground">{description}</p>
+                </div>
+                {available ? (
+                  <Badge variant="outline" className="text-xs text-green-600 border-green-500/40">
+                    Detected
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-xs">
+                    Not found
+                  </Badge>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <Separator />
+
+        {/* Mobile / deep-link section */}
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            No extension? Use mobile or direct link
+          </p>
+          <a
+            href={phantomUniversalLink(appUrl)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex w-full items-center gap-3 rounded-lg border p-3 hover:bg-accent transition-colors"
+            data-testid="link-phantom-universal"
+          >
+            <Globe className="h-5 w-5 text-purple-500" />
+            <div className="flex-1">
+              <p className="text-sm font-medium">Open in Phantom browser</p>
+              <p className="text-xs text-muted-foreground">
+                Phantom universal link — opens this app inside Phantom's in-app browser
+              </p>
+            </div>
+            <ExternalLink className="h-4 w-4 text-muted-foreground" />
+          </a>
+          <button
+            onClick={openTopLevel}
+            className="flex w-full items-center gap-3 rounded-lg border p-3 hover:bg-accent transition-colors"
+            data-testid="button-open-new-tab"
+          >
+            <ExternalLink className="h-5 w-5 text-blue-500" />
+            <div className="flex-1 text-left">
+              <p className="text-sm font-medium">Open in new tab</p>
+              <p className="text-xs text-muted-foreground">
+                Leaves the embedded preview — extensions work in standalone browser tabs
+              </p>
+            </div>
+          </button>
+          <button
+            onClick={() => navigator.clipboard?.writeText(appUrl).catch(() => null)}
+            className="flex w-full items-center gap-3 rounded-lg border p-3 hover:bg-accent transition-colors"
+            data-testid="button-copy-app-url"
+          >
+            <Globe className="h-5 w-5 text-teal-500" />
+            <div className="flex-1 text-left">
+              <p className="text-sm font-medium">Copy app URL</p>
+              <p className="text-xs text-muted-foreground">
+                Paste into Phantom, Backpack, or any browser with a wallet extension
+              </p>
+            </div>
+          </button>
+        </div>
+
+        <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
+          <strong>Tip:</strong> Wallet extensions inject into top-level browser pages only.
+          Embedded iframes (Perplexity, Replit previews) block extension injection.
+          The deployed Vercel URL opens in a full browser tab and works best.
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function Shell({ state }: { state: PodMeshState }) {
   const [location] = useLocation();
@@ -600,6 +955,8 @@ function Shell({ state }: { state: PodMeshState }) {
   ] as const;
   return (
     <div className="min-h-screen bg-background">
+      <IframeWarningBanner />
+      <WalletPickerModal state={state} />
       <header className="sticky top-0 z-50 border-b bg-background/85 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 md:px-6">
           <AppLogo />
@@ -747,8 +1104,8 @@ function Overview({ state }: { state: PodMeshState }) {
             />
             <RouteExplainer
               route="pending-deployment"
-              title="Pending Program Deployment"
-              copy="Actions that require the Pod Factory on-chain program (PDA CPI). Programs compiled and .so artifacts ready — awaiting devnet deploy with SOL for rent."
+              title="CPI Testing Pending"
+              copy="pod_factory and settlement are deployed to Solana devnet. Full PDA CPI end-to-end testing (delegation round-trip, cross-program invocations) is ongoing."
             />
           </div>
         </CardContent>
@@ -806,15 +1163,15 @@ function PodPage({ state }: { state: PodMeshState }) {
         copy="The first transaction anchors the Pod policy memo to Solana devnet. Delegation uses MagicBlock's delegation instruction builder and Magic Router."
       />
       {/* Deployment status notice */}
-      <Card className="border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30">
+      <Card className="border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30">
         <CardContent className="flex items-start gap-3 p-4">
-          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
           <div className="text-sm">
-            <p className="font-medium text-amber-800 dark:text-amber-300">Program deployment status</p>
-            <p className="mt-1 text-amber-700 dark:text-amber-400">
-              The Pod Factory and Settlement programs have been compiled to <code className="rounded bg-amber-100 dark:bg-amber-900 px-1">target/deploy/*.so</code>.
-              Full PDA CPI delegation requires on-chain deployment (<code className="rounded bg-amber-100 dark:bg-amber-900 px-1">solana program deploy</code>).
-              Until then, "Anchor policy" sends a real devnet memo and "Delegate to ER" uses MagicBlock's live instruction builders.
+            <p className="font-medium text-emerald-800 dark:text-emerald-300">Programs deployed to Solana devnet</p>
+            <p className="mt-1 text-emerald-700 dark:text-emerald-400">
+              <code className="rounded bg-emerald-100 dark:bg-emerald-900 px-1">pod_factory</code> and <code className="rounded bg-emerald-100 dark:bg-emerald-900 px-1">settlement</code> are live on Solana devnet.
+              The <code className="rounded bg-emerald-100 dark:bg-emerald-900 px-1">create_spend_pod</code> instruction was called via <code className="rounded bg-emerald-100 dark:bg-emerald-900 px-1">scripts/create-spend-pod.ts</code> — see Live Proof for the signature.
+              "Anchor policy" below sends a real devnet memo tx anchoring the policy hash. Full CPI delegation testing is underway.
             </p>
           </div>
         </CardContent>
@@ -1190,10 +1547,11 @@ function LiveProofPage({ state }: { state: PodMeshState }) {
     },
     {
       id: "program-build",
-      label: "Anchor programs compiled to .so",
+      label: "Anchor programs deployed to Solana devnet",
       status: "pass",
       detail:
-        "pod_factory.so (283 KB) and settlement.so (204 KB) built via anchor build. Awaiting on-chain deploy for full PDA CPI.",
+        "pod_factory (FXMgSbYBh6fQFCPQ7My5CAKW8sWgUTHQwo7gqLykp4fm) and settlement (A9LFQfSS55CfCzNHYx7UGZpaWTvPaT19RWRvykhpohnc) are executable on Solana devnet. create_spend_pod called successfully — see deployment signature below.",
+      explorerUrl: explorerAccount("FXMgSbYBh6fQFCPQ7My5CAKW8sWgUTHQwo7gqLykp4fm"),
     },
     {
       id: "ephemeral-sdk",
@@ -1218,7 +1576,7 @@ function LiveProofPage({ state }: { state: PodMeshState }) {
       <PageHead
         eyebrow="Live Proof"
         title="Hackathon submission evidence"
-        copy="This page demonstrates which parts of the PodMesh stack are live on devnet/ER and which are pending program deployment. Every item with a ✓ has on-chain proof."
+        copy="Both programs are deployed to Solana devnet and the create_spend_pod instruction has been called successfully. Every item with a ✓ has on-chain proof. Remaining amber items reflect CPI/delegation integration testing still in progress."
       />
 
       {/* Status checklist */}
@@ -1226,7 +1584,7 @@ function LiveProofPage({ state }: { state: PodMeshState }) {
         <CardHeader>
           <CardTitle className="text-base">On-chain & ER proof checklist</CardTitle>
           <CardDescription>
-            Green = live evidence. Amber = pending user action or program deploy.
+            Green = live on-chain evidence. Amber = pending user action or integration testing.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -1325,50 +1683,64 @@ function LiveProofPage({ state }: { state: PodMeshState }) {
         </Card>
       )}
 
-      {/* Program artifacts */}
+      {/* Deployment signatures */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Compiled program artifacts</CardTitle>
+          <CardTitle className="text-base flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            Deployed programs — on-chain proof
+          </CardTitle>
+          <CardDescription>Both programs are executable on Solana devnet. The E2E test script called create_spend_pod successfully.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="rounded-lg border p-3 space-y-2">
-            <div className="flex items-center gap-2">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20 p-3 space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              <p className="text-sm font-medium font-mono">target/deploy/pod_factory.so</p>
-              <Badge variant="secondary">283 KB</Badge>
+              <p className="text-sm font-medium">pod_factory</p>
+              <Badge variant="secondary">Deployed</Badge>
+              <Badge variant="outline" className="font-mono text-xs">FXMgSbYBh6fQFCPQ7My5CAKW8sWgUTHQwo7gqLykp4fm</Badge>
             </div>
             <p className="text-xs text-muted-foreground">
-              Anchor 0.32.1 program with create_spend_pod, record_receipt, delegate_pod, commit_pod, commit_and_undelegate_pod.
-              Fixed delegate_account CPI to match ephemeral-rollups-sdk 0.2.5 DelegateAccounts struct.
+              Instructions: create_spend_pod, record_receipt, delegate_pod, commit_pod, commit_and_undelegate_pod.
+              Built with Anchor 0.32.1 + ephemeral-rollups-sdk 0.2.5.
             </p>
+            <a href={explorerAccount("FXMgSbYBh6fQFCPQ7My5CAKW8sWgUTHQwo7gqLykp4fm")} target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="sm">View program on Explorer <ExternalLink className="ml-1 h-3 w-3" /></Button>
+            </a>
+          </div>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20 p-3 space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <p className="text-sm font-medium">settlement</p>
+              <Badge variant="secondary">Deployed</Badge>
+              <Badge variant="outline" className="font-mono text-xs">A9LFQfSS55CfCzNHYx7UGZpaWTvPaT19RWRvykhpohnc</Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Epoch settlement with settle_epoch instruction and EpochSettlement PDA.
+            </p>
+            <a href={explorerAccount("A9LFQfSS55CfCzNHYx7UGZpaWTvPaT19RWRvykhpohnc")} target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="sm">View program on Explorer <ExternalLink className="ml-1 h-3 w-3" /></Button>
+            </a>
+          </div>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <p className="text-sm font-medium">E2E test: create_spend_pod called on devnet</p>
+            </div>
+            <p className="text-xs text-muted-foreground">Pod PDA: <code className="font-mono">GFdguT4bsdFfpixVpqwH6qNokYRGY21WsidQe7bFvYNL</code></p>
+            <code className="block text-xs break-all text-muted-foreground">2uRUDPGLSEbX5vnqveZLH4h9CggaPFrT6kkTjYgGzaepchL3StPp8hYsHhEX2D3tykgJceTQoyjLdCBYTNSSJi6F</code>
             <div className="flex gap-2 flex-wrap">
-              <a href={explorerAccount(POD_FACTORY_PROGRAM_ID.toBase58())} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm">
-                  Program ID on Explorer <ExternalLink className="ml-1 h-3 w-3" />
-                </Button>
+              <a href="https://explorer.solana.com/tx/2uRUDPGLSEbX5vnqveZLH4h9CggaPFrT6kkTjYgGzaepchL3StPp8hYsHhEX2D3tykgJceTQoyjLdCBYTNSSJi6F?cluster=devnet" target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" size="sm">Transaction on Explorer <ExternalLink className="ml-1 h-3 w-3" /></Button>
+              </a>
+              <a href="https://explorer.solana.com/address/GFdguT4bsdFfpixVpqwH6qNokYRGY21WsidQe7bFvYNL?cluster=devnet" target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" size="sm">Pod PDA on Explorer <ExternalLink className="ml-1 h-3 w-3" /></Button>
               </a>
             </div>
           </div>
-          <div className="rounded-lg border p-3 space-y-2">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              <p className="text-sm font-medium font-mono">target/deploy/settlement.so</p>
-              <Badge variant="secondary">204 KB</Badge>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Anchor 0.32.1 settlement program with settle_epoch and EpochSettlement PDA.
-            </p>
-            <a href={explorerAccount("A9LFQfSS55CfCzNHYx7UGZpaWTvPaT19RWRvykhpohnc")} target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" size="sm">
-                Program ID on Explorer <ExternalLink className="ml-1 h-3 w-3" />
-              </Button>
-            </a>
-          </div>
           <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20 p-3">
-            <p className="text-xs font-medium text-amber-800 dark:text-amber-300">To deploy:</p>
-            <code className="mt-1 block text-xs text-amber-700 dark:text-amber-400">
-              solana program deploy target/deploy/pod_factory.so --program-id programs/pod_factory-keypair.json
-            </code>
+            <p className="text-xs font-medium text-amber-800 dark:text-amber-300">Full CPI delegation testing still in progress</p>
+            <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">create_spend_pod ✓ complete. delegate_pod (MagicBlock delegation round-trip) and cross-program settlement CPI are next.</p>
           </div>
         </CardContent>
       </Card>
@@ -1380,7 +1752,7 @@ function ArchitecturePage() {
   const layers = [
     {
       title: "Solana base layer",
-      copy: "Pod Factory + Settlement programs compiled and ready for devnet deploy. Policy PDAs, receipt events, and epoch settlement commitments live on-chain.",
+      copy: "Pod Factory (FXMgSbYBh6fQFCPQ7My5CAKW8sWgUTHQwo7gqLykp4fm) and Settlement (A9LFQfSS55CfCzNHYx7UGZpaWTvPaT19RWRvykhpohnc) are deployed and executable on Solana devnet. create_spend_pod E2E test confirmed on-chain.",
       route: "devnet" as TxRoute,
     },
     {
